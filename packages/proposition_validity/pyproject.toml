@@ -1,0 +1,21 @@
+[project]
+name = "proposition-validity"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [{ name = "Philip Chung", email = "philip.f.chung@gmail.com" }]
+requires-python = ">=3.11.4"
+dependencies = [
+    "llama-index>=0.12.4",
+    "pydantic>=2.10.3",
+    "tqdm>=4.67.1",
+]
+
+[tool.uv.sources]
+pydantic_utils = { workspace = true }
+utils = { workspace = true }
+rag = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

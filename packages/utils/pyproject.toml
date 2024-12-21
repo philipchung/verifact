@@ -1,0 +1,17 @@
+[project]
+name = "utils"
+version = "0.1.0"
+description = "Shared utilities."
+readme = "README.md"
+authors = [{ name = "Philip Chung", email = "philip.f.chung@gmail.com" }]
+requires-python = ">=3.11.4"
+dependencies = [
+    "python-dotenv>=1.0.1",
+    "tenacity>=8.0.0",
+    "tiktoken>=0.8.0",
+    "tqdm>=4.67.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

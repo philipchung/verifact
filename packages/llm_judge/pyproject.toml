@@ -1,0 +1,23 @@
+[project]
+name = "llm-judge"
+version = "0.1.0"
+description = "Simple agent for judging propositions by retrieving facts from vector database."
+readme = "README.md"
+authors = [{ name = "Philip Chung", email = "philip.f.chung@gmail.com" }]
+requires-python = ">=3.11.4"
+dependencies = [
+    "llama-index>=0.12.4",
+    "pandas>=2.2.3",
+    "pydantic>=2.10.3",
+    "qdrant-client>=1.12.1",
+    "tqdm>=4.67.1",
+]
+
+[tool.uv.sources]
+pydantic_utils = { workspace = true }
+utils = { workspace = true }
+rag = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

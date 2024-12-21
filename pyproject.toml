@@ -1,0 +1,105 @@
+[project]
+name = "verifact"
+version = "0.1.0"
+description = "Verify facts in long-form clinical text using a patient's own electronic health record."
+readme = "README.md"
+requires-python = ">=3.11.4"
+dependencies = [
+    "httpx>=0.28.1",
+    "ipykernel>=6.29.0",
+    "ipywidgets>=8.1.5",
+    "jupyter>=1.1.0",
+    "matplotlib>=3.9.2",
+    "seaborn>=0.13.0",
+    "mypy>=1.13.0",
+    "nest-asyncio>=1.6.0",
+    "openai>=1.57.0",
+    "pyarrow>=18.1.0",
+    "numpy>=1.26.4",
+    "scipy>=1.12.0",
+    "pandas-stubs>=2.2.3.241126",
+    "pandas>=2.2.0",
+    "python-dotenv>=1.0.1",
+    "ruff>=0.8.2",
+    "tqdm>=4.67.1",
+    "transformers>=4.46.3",
+    "typer>=0.15.1",
+    "types-tqdm>=4.67.0.20241119",
+]
+
+[tool.uv]
+link-mode = "copy"
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+irr_metrics = { workspace = true }
+llm_judge = { workspace = true }
+llm_writer = { workspace = true }
+proposition_validity = { workspace = true }
+rag = { workspace = true }
+rq_utils = { workspace = true }
+utils = { workspace = true }
+
+[tool.ruff]
+ignore = []
+extend-include = ["*.ipynb"]
+# Exclude a variety of commonly ignored directories.
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+]
+# Same as Black
+line-length = 100
+# Indent with 4 spaces
+indent-width = 4
+# Allow unused variables when underscore-prefixed
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+# Assume Python 3.12
+target-version = "py312"
+
+[tool.ruff.lint]
+# select = ["ALL"]
+select = [
+    # pycodestyle
+    "E",
+    # Pyflakes
+    "F",
+    # pyupgrade
+    "UP",
+    # flake8-simplify
+    "SIM",
+    # isort
+    "I",
+]
+
+[tool.ruff.lint.mccabe]
+# Flag errors (`C901`) whenever the complexity level exceeds 10.
+max-complexity = 10
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+docstring-code-line-length = 80
+
+[tool.ruff.pydocstyle]
+convention = "google"

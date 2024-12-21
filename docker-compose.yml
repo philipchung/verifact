@@ -1,0 +1,496 @@
+services:
+  ### 1. Traefik reverse proxy and load balancer
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      # Traefik static config
+      ## logs
+      - --log=true
+      - --log.filePath=/logs/traefik.log
+      - --log.level=DEBUG # (Default: error) DEBUG, INFO, WARN, ERROR, FATAL, PANIC
+      - --accessLog=true
+      - --accessLog.filePath=/logs/access.log
+      - --accessLog.bufferingSize=100 # Configuring a buffer of 100 lines
+      - --accessLog.filters.statusCodes=204-299,400-499,500-599
+      # LetsEncrypt Staging Server - uncomment when testing
+      - --certificatesResolvers.letsencrypt.acme.caServer=https://acme-staging-v02.api.letsencrypt.org/directory
+      # Make sure your firewall allows HTTP/HTTPS
+      - --entrypoints.http.address=:80
+      - --entrypoints.https.address=:443
+      # API Dashboard
+      - --api.insecure=true
+      - --api.dashboard=true
+      # Docker
+      - --providers.docker=true
+      - --providers.docker.exposedByDefault=false
+      # LetsEncrypt
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge=true
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=http
+      - --certificatesresolvers.letsencrypt.acme.email=${ADMIN_EMAIL} # Your email for Let's Encrypt notifications
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+    labels:
+      - traefik.enable=true
+      # Redirect all HTTP traffic to HTTPS
+      - traefik.http.routers.to-https.entrypoints=http
+      - traefik.http.routers.to-https.rule=HostRegexp(`{host:.+}`)
+      - traefik.http.routers.to-https.middlewares=to-https
+      - traefik.http.middlewares.to-https.redirectscheme.scheme=https
+      ## Services - API Dashboard
+      - traefik.http.routers.traefik.entrypoints=https
+      - traefik.http.routers.traefik.middlewares=auth
+      - traefik.http.routers.traefik.tls=true
+      - traefik.http.routers.traefik.tls.certresolver=${CERT_RESOLVER}
+      - traefik.http.middlewares.auth.basicauth.users=${TRAEFIK_USER}:${TRAEFIK_PASSWORD_HASH}
+      - traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN}`)
+      - traefik.http.routers.traefik.service=api@internal
+      ## Traefik Service
+      - traefik.http.routers.traefik.service=traefik-service
+      - traefik.http.services.traefik-service.loadbalancer.server.port=8080
+
+    ports:
+      - 80:80 # HTTP port
+      - 443:443 # HTTPS port
+      - ${TRAEFIK_HOST_PORT}:${TRAEFIK_CONTAINER_PORT} # Traefik Dashboard (enabled by --api=true)
+    volumes:
+      - ./docker/cert/letsencrypt:/letsencrypt # Store's Let's Encrypt certificates here; make sure it's secure
+      - ./docker/logs/traefik:/logs # Traefik logs
+      - /var/run/docker.sock:/var/run/docker.sock:ro # Allow Traefik to listen to the Docker events
+
+  ### 2. vLLM Service Containers - load balanced in vllm-service (GPU device and Ports are different)
+  llm0:
+    image: vllm/vllm-openai:v0.6.4
+    container_name: llm0
+    restart: unless-stopped
+    shm_size: '4gb'
+    # vLLM server config
+    command: >-
+      --model=${LLM_MODEL_NAME}   --dtype=${DTYPE}   --max-model-len=${LLM_MAX_MODEL_LEN}   --gpu-memory-utilization=${GPU0_MEMORY_UTILIZATION}   --tensor-parallel-size=${TENSOR_PARALLEL_SIZE}   --pipeline-parallel-size=${PIPELINE_PARALLEL_SIZE}   --block-size=${BLOCK_SIZE}   --swap-space=${SWAP_SPACE}   --guided-decoding-backend=${GUIDED_DECODING_BACKEND}  ${EXTRA_ARGS}
+    ports:
+      - ${LLM0_HOST_PORT}:${LLM_CONTAINER_PORT}
+    expose:
+      - ${LLM_CONTAINER_PORT}
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [ gpu ]
+              device_ids: [ '0' ] # <--- GPU Devices available to container 
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.llm0.rule=Host(`llm.${DOMAIN}`)
+      - traefik.http.routers.llm0.service=llm-service
+      - traefik.http.services.llm-service.loadbalancer.server.port=${LLM_CONTAINER_PORT}
+
+  llm1:
+    image: vllm/vllm-openai:v0.6.4
+    container_name: llm1
+    restart: unless-stopped
+    shm_size: '4gb'
+    # vLLM server config
+    command: >-
+      --model=${LLM_MODEL_NAME}   --dtype=${DTYPE}   --max-model-len=${LLM_MAX_MODEL_LEN}   --gpu-memory-utilization=${GPU1_MEMORY_UTILIZATION}   --tensor-parallel-size=${TENSOR_PARALLEL_SIZE}   --pipeline-parallel-size=${PIPELINE_PARALLEL_SIZE}   --block-size=${BLOCK_SIZE}   --swap-space=${SWAP_SPACE}   --guided-decoding-backend=${GUIDED_DECODING_BACKEND}  ${EXTRA_ARGS} 
+    ports:
+      - ${LLM1_HOST_PORT}:${LLM_CONTAINER_PORT}
+    expose:
+      - ${LLM_CONTAINER_PORT}
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [ gpu ]
+              device_ids: [ '1' ] # <--- GPU Devices available to container 
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.llm1.rule=Host(`llm.${DOMAIN}`)
+      - traefik.http.routers.llm1.service=llm-service
+      - traefik.http.services.llm-service.loadbalancer.server.port=${LLM_CONTAINER_PORT}
+
+  llm2:
+    image: vllm/vllm-openai:v0.6.4
+    container_name: llm2
+    restart: unless-stopped
+    shm_size: '4gb'
+    # vLLM server config
+    command: >-
+      --model=${LLM_MODEL_NAME}  --dtype=${DTYPE}  --max-model-len=${LLM_MAX_MODEL_LEN}  --gpu-memory-utilization=${GPU2_MEMORY_UTILIZATION}  --tensor-parallel-size=${TENSOR_PARALLEL_SIZE}  --pipeline-parallel-size=${PIPELINE_PARALLEL_SIZE}  --block-size=${BLOCK_SIZE}  --swap-space=${SWAP_SPACE}  --guided-decoding-backend=${GUIDED_DECODING_BACKEND} ${EXTRA_ARGS} 
+    ports:
+      - ${LLM2_HOST_PORT}:${LLM_CONTAINER_PORT}
+    expose:
+      - ${LLM_CONTAINER_PORT}
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [ gpu ]
+              device_ids: [ '2' ] # <--- GPU Devices available to container 
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.llm2.rule=Host(`llm.${DOMAIN}`)
+      - traefik.http.routers.llm2.service=llm-service
+      - traefik.http.services.llm-service.loadbalancer.server.port=${LLM_CONTAINER_PORT}
+
+  llm3:
+    image: vllm/vllm-openai:v0.6.4
+    container_name: llm3
+    restart: unless-stopped
+    shm_size: '4gb'
+    # vLLM server config
+    command: >-
+      --model=${LLM_MODEL_NAME}   --dtype=${DTYPE}   --max-model-len=${LLM_MAX_MODEL_LEN}   --gpu-memory-utilization=${GPU3_MEMORY_UTILIZATION}   --tensor-parallel-size=${TENSOR_PARALLEL_SIZE}   --pipeline-parallel-size=${PIPELINE_PARALLEL_SIZE}   --block-size=${BLOCK_SIZE}   --swap-space=${SWAP_SPACE}   --guided-decoding-backend=${GUIDED_DECODING_BACKEND} ${EXTRA_ARGS} 
+    ports:
+      - ${LLM3_HOST_PORT}:${LLM_CONTAINER_PORT}
+    expose:
+      - ${LLM_CONTAINER_PORT}
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [ gpu ]
+              device_ids: [ '3' ] # <--- GPU Devices available to container 
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.llm3.rule=Host(`llm.${DOMAIN}`)
+      - traefik.http.routers.llm3.service=llm-service
+      - traefik.http.services.llm-service.loadbalancer.server.port=${LLM_CONTAINER_PORT}
+
+  ### 4. Infinity Server for Embedding (Customized for BGE-M3)
+  embed0:
+    image: infinity/embed
+    container_name: embed0
+    build:
+      context: ./services/embed
+      shm_size: '4gb'
+      args:
+        DOCKER_BUILDKIT: 1
+    shm_size: '4gb'
+    restart: unless-stopped
+    ports:
+      - ${EMBED0_HOST_PORT}:${EMBED_CONTAINER_PORT}
+    expose:
+      - ${EMBED_CONTAINER_PORT}
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [ gpu ]
+              device_ids: [ '0' ] # <--- GPU Devices available to container 
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.embed0.rule=Host(`embed.${DOMAIN}`)
+      - traefik.http.routers.embed0.service=embed-service
+      - traefik.http.services.embed-service.loadbalancer.server.port=${EMBED_CONTAINER_PORT}
+
+  embed1:
+    image: infinity/embed
+    container_name: embed1
+    build:
+      context: ./services/embed
+      shm_size: '4gb'
+      args:
+        DOCKER_BUILDKIT: 1
+    shm_size: '4gb'
+    restart: unless-stopped
+    ports:
+      - ${EMBED1_HOST_PORT}:${EMBED_CONTAINER_PORT}
+    expose:
+      - ${EMBED_CONTAINER_PORT}
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [ gpu ]
+              device_ids: [ '1' ] # <--- GPU Devices available to container 
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.embed1.rule=Host(`embed.${DOMAIN}`)
+      - traefik.http.routers.embed1.service=embed-service
+      - traefik.http.services.embed-service.loadbalancer.server.port=${EMBED_CONTAINER_PORT}
+
+  embed2:
+    image: infinity/embed
+    container_name: embed2
+    build:
+      context: ./services/embed
+      shm_size: '4gb'
+      args:
+        DOCKER_BUILDKIT: 1
+    shm_size: '4gb'
+    restart: unless-stopped
+    ports:
+      - ${EMBED2_HOST_PORT}:${EMBED_CONTAINER_PORT}
+    expose:
+      - ${EMBED_CONTAINER_PORT}
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [ gpu ]
+              device_ids: [ '2' ] # <--- GPU Devices available to container 
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.embed2.rule=Host(`embed.${DOMAIN}`)
+      - traefik.http.routers.embed2.service=embed-service
+      - traefik.http.services.embed-service.loadbalancer.server.port=${EMBED_CONTAINER_PORT}
+
+  embed3:
+    image: infinity/embed
+    container_name: embed3
+    profiles: [ all, embed, models, ingest, query, gpu3, gpu3-ingest ]
+    build:
+      context: ./services/embed
+      shm_size: '4gb'
+      args:
+        DOCKER_BUILDKIT: 1
+    shm_size: '4gb'
+    restart: unless-stopped
+    ports:
+      - ${EMBED3_HOST_PORT}:${EMBED_CONTAINER_PORT}
+    expose:
+      - ${EMBED_CONTAINER_PORT}
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [ gpu ]
+              device_ids: [ '3' ] # <--- GPU Devices available to container 
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.embed3.rule=Host(`embed.${DOMAIN}`)
+      - traefik.http.routers.embed3.service=embed-service
+      - traefik.http.services.embed-service.loadbalancer.server.port=${EMBED_CONTAINER_PORT}
+
+  ### 5. Infinity Server for Reranking (Custom Container)
+  rerank0:
+    image: infinity/rerank
+    container_name: rerank0
+    build:
+      context: ./services/rerank
+      shm_size: '4gb'
+      args:
+        DOCKER_BUILDKIT: 1
+    shm_size: '4gb'
+    restart: unless-stopped
+    ports:
+      - ${RERANK0_HOST_PORT}:${RERANK_CONTAINER_PORT}
+    expose:
+      - ${RERANK_CONTAINER_PORT}
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [ gpu ]
+              device_ids: [ '0' ] # <--- GPU Devices available to container 
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.rerank0.rule=Host(`rerank.${DOMAIN}`)
+      - traefik.http.routers.rerank0.service=rerank-service
+      - traefik.http.services.rerank-service.loadbalancer.server.port=${RERANK_CONTAINER_PORT}
+
+  rerank1:
+    image: infinity/rerank
+    container_name: rerank1
+    build:
+      context: ./services/rerank
+      shm_size: '4gb'
+      args:
+        DOCKER_BUILDKIT: 1
+    shm_size: '4gb'
+    restart: unless-stopped
+    ports:
+      - ${RERANK1_HOST_PORT}:${RERANK_CONTAINER_PORT}
+    expose:
+      - ${RERANK_CONTAINER_PORT}
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [ gpu ]
+              device_ids: [ '1' ] # <--- GPU Devices available to container 
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.rerank1.rule=Host(`rerank.${DOMAIN}`)
+      - traefik.http.routers.rerank1.service=rerank-service
+      - traefik.http.services.rerank-service.loadbalancer.server.port=${RERANK_CONTAINER_PORT}
+
+  rerank2:
+    image: infinity/rerank
+    container_name: rerank2
+    build:
+      context: ./services/rerank
+      shm_size: '4gb'
+      args:
+        DOCKER_BUILDKIT: 1
+    shm_size: '4gb'
+    restart: unless-stopped
+    ports:
+      - ${RERANK2_HOST_PORT}:${RERANK_CONTAINER_PORT}
+    expose:
+      - ${RERANK_CONTAINER_PORT}
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [ gpu ]
+              device_ids: [ '2' ] # <--- GPU Devices available to container 
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.rerank2.rule=Host(`rerank.${DOMAIN}`)
+      - traefik.http.routers.rerank2.service=rerank-service
+      - traefik.http.services.rerank-service.loadbalancer.server.port=${RERANK_CONTAINER_PORT}
+
+  rerank3:
+    image: infinity/rerank
+    container_name: rerank3
+    build:
+      context: ./services/rerank
+      shm_size: '4gb'
+      args:
+        DOCKER_BUILDKIT: 1
+    shm_size: '4gb'
+    restart: unless-stopped
+    ports:
+      - ${RERANK3_HOST_PORT}:${RERANK_CONTAINER_PORT}
+    expose:
+      - ${RERANK_CONTAINER_PORT}
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [ gpu ]
+              device_ids: [ '3' ] # <--- GPU Devices available to container 
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.rerank3.rule=Host(`rerank.${DOMAIN}`)
+      - traefik.http.routers.rerank3.service=rerank-service
+      - traefik.http.services.rerank-service.loadbalancer.server.port=${RERANK_CONTAINER_PORT}
+
+  ### 6. Redis KV Store
+  redis:
+    image: redis/redis-stack:latest
+    container_name: redis
+    restart: always
+    ports:
+      - ${REDIS_HOST_PORT}:${REDIS_CONTAINER_PORT}
+      - ${REDIS_DASHBOARD_HOST_PORT}:${REDIS_DASHBOARD_CONTAINER_PORT}
+    expose:
+      - 6379
+      - 6380
+    volumes:
+      - ${REDIS_STORAGE_PATH}:/data
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.redis.rule=Host(`redis.${DOMAIN}`)
+      - traefik.http.routers.redis.service=redis-service
+      - traefik.http.services.redis-service.loadbalancer.server.port=${REDIS_CONTAINER_PORT}
+
+  ### 7. RQ-Dashboard
+  rq-dashboard:
+    image: cjlapao/rq-dashboard:0.7.1
+    container_name: rq-dashboard
+    restart: always
+    ports:
+      - ${RQ_DASHBOARD_HOST_PORT}:${RQ_DASHBOARD_CONTAINER_PORT}
+    expose:
+      - 9181
+    environment:
+      - RQ_DASHBOARD_REDIS_URL=redis://redis:6379
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.rq-dashboard.rule=Host(`rq-dashboard.${DOMAIN}`)
+      - traefik.http.routers.rq-dashboard.service=rq-dashboard-service
+      - traefik.http.services.rq-dashboard-service.loadbalancer.server.port=${RQ_DASHBOARD_CONTAINER_PORT}
+
+  ### 8. Qdrant Vector Database
+  qdrant:
+    image: qdrant/qdrant:v1.10.0
+    container_name: "qdrant"
+    restart: always
+    ports:
+      - ${QDRANT_HOST_PORT}:${QDRANT_CONTAINER_PORT}
+      - ${QDRANT_GRPC_HOST_PORT}:${QDRANT_GRPC_CONTAINER_PORT}
+    expose:
+      - ${QDRANT_CONTAINER_PORT} # 6333
+      - ${QDRANT_GRPC_CONTAINER_PORT} # 6334
+      - 6335
+    volumes:
+      - ${QDRANT_STORAGE_PATH}:/qdrant/storage
+    labels:
+      - traefik.enable=true
+      # - traefik.http.routers.qdrant.tls=true
+      # - traefik.http.routers.qdrant.entrypoints=https
+      # - traefik.http.routers.qdrant.tls.certresolver=${CERT_RESOLVER} # lets encrypt for public server
+      - traefik.http.routers.qdrant.rule=Host(`qdrant.${DOMAIN}`)
+      - traefik.http.routers.qdrant.service=qdrant-service
+      - traefik.http.services.qdrant-service.loadbalancer.server.port=${QDRANT_CONTAINER_PORT}
+
+  ### 9. Prometheus for Time Series Monitoring Metrics 
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: "prometheus"
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # allow a direct connection from container to the local machine
+    ports:
+      - "${PROMETHEUS_HOST_PORT}:${PROMETHEUS_CONTAINER_PORT}" # the default port used by Prometheus
+    volumes:
+      - ${MONITORING_CONFIG_DIR}/prometheus.yml:/etc/prometheus/prometheus.yml # mount Prometheus config file
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.prometheus.rule=Host(`prometheus.${DOMAIN}`)
+      - traefik.http.routers.prometheus.service=prometheus-service
+      - traefik.http.services.prometheus-service.loadbalancer.server.port=${PROMETHEUS_CONTAINER_PORT}
+      - traefik.docker.network=inbound
+
+  ### 10. Grafana for Visualizing Time Series Metrics
+  grafana:
+    image: grafana/grafana:11.4.0-ubuntu
+    container_name: "grafana"
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    ports:
+      - "${GRAFANA_HOST_PORT}:${GRAFANA_CONTAINER_PORT}" # the default port used by Grafana
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.grafana.rule=Host(`grafana.${DOMAIN}`)
+      - traefik.http.routers.grafana.service=grafana-service
+      - traefik.http.services.grafana-service.loadbalancer.server.port=${GRAFANA_CONTAINER_PORT}
+      - traefik.docker.network=inbound
