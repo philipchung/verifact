@@ -102,32 +102,7 @@
                         ]
                     }
                 },
-                "overrides": [
-                    {
-                        "__systemRef": "hideSeriesFrom",
-                        "matcher": {
-                            "id": "byNames",
-                            "options": {
-                                "mode": "exclude",
-                                "names": [
-                                    "LLM GPU1"
-                                ],
-                                "prefix": "All except:",
-                                "readOnly": true
-                            }
-                        },
-                        "properties": [
-                            {
-                                "id": "custom.hideFrom",
-                                "value": {
-                                    "legend": false,
-                                    "tooltip": false,
-                                    "viz": true
-                                }
-                            }
-                        ]
-                    }
-                ]
+                "overrides": []
             },
             "gridPos": {
                 "h": 8,
@@ -197,6 +172,13 @@
                     "options": {
                         "regex": "(.*instance=\"host.docker.internal:8103\", job=\"vllm\",.*)",
                         "renamePattern": "LLM GPU3"
+                    }
+                },
+                {
+                    "id": "renameByRegex",
+                    "options": {
+                        "regex": "(.*instance=\"host.docker.internal:8104\", job=\"vllm\",.*)",
+                        "renamePattern": "LLM Tensor Parallel"
                     }
                 }
             ],
@@ -334,6 +316,13 @@
                         "regex": "(.*instance=\"host.docker.internal:8103\", job=\"vllm\",.*)",
                         "renamePattern": "LLM GPU3"
                     }
+                },
+                {
+                    "id": "renameByRegex",
+                    "options": {
+                        "regex": "(.*instance=\"host.docker.internal:8104\", job=\"vllm\",.*)",
+                        "renamePattern": "LLM Tensor Parallel"
+                    }
                 }
             ],
             "type": "timeseries"
@@ -469,6 +458,13 @@
                     "options": {
                         "regex": "(.*instance=\"host.docker.internal:8103\", job=\"vllm\",.*)",
                         "renamePattern": "LLM GPU3"
+                    }
+                },
+                {
+                    "id": "renameByRegex",
+                    "options": {
+                        "regex": "(.*instance=\"host.docker.internal:8104\", job=\"vllm\",.*)",
+                        "renamePattern": "LLM Tensor Parallel"
                     }
                 }
             ],
@@ -606,6 +602,13 @@
                         "regex": "(.*instance=\"host.docker.internal:8103\", job=\"vllm\",.*)",
                         "renamePattern": "LLM GPU3"
                     }
+                },
+                {
+                    "id": "renameByRegex",
+                    "options": {
+                        "regex": "(.*instance=\"host.docker.internal:8104\", job=\"vllm\",.*)",
+                        "renamePattern": "LLM Tensor Parallel"
+                    }
                 }
             ],
             "type": "timeseries"
@@ -741,6 +744,13 @@
                     "options": {
                         "regex": "(.*instance=\"host.docker.internal:8103\", job=\"vllm\",.*)",
                         "renamePattern": "LLM GPU3"
+                    }
+                },
+                {
+                    "id": "renameByRegex",
+                    "options": {
+                        "regex": "(.*instance=\"host.docker.internal:8104\", job=\"vllm\",.*)",
+                        "renamePattern": "LLM Tensor Parallel"
                     }
                 }
             ],

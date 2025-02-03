@@ -19,6 +19,8 @@ Add your environment variables in `.env`.
 ```sh
 # Hugging Face Token: https://huggingface.co/docs/hub/en/security-tokens
 HF_TOKEN=${HUGGINGFACE_READ_TOKEN}
+# Hugging Face Cache
+HF_HOME=${HOME}/.cache/huggingface
 
 # Local Machine URL
 SERVER_BASE_URL=localhost
@@ -48,7 +50,7 @@ Local services include:
 
 1. Local Embedding Model (requires GPU): customized `infinity` inference engine to serve the [BAAI/bge-m3](https://huggingface.co/BAAI/bge-m3) model with both dense and sparse embedding generation.
 2. Local Rerank Model (requires GPU): customized `infinity` inference engine to serve the [BAAI/bge-reranker-v2-m3](https://huggingface.co/BAAI/bge-reranker-v2-m3) reranking model.
-3. Local LLM Inference Service (requires GPU): multiple instances of `vLLM` in with a round robin load balancer to achieve data parallel serving for [hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4](https://huggingface.co/hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4).
+3. Local LLM Inference Service (requires GPU): `vLLM` serving for [hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4](https://huggingface.co/hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4). Either tensor parallel over multiple GPUs or data parallel with a round robin load balancer if GPU has adequate VRAM to host a single model on each GPU.
 4. Vector Database: locally hosted `qdrant` vector database
 5. Traefik: router, reverse proxy, load balancer
 6. Redis: key-value store for redis-queue
@@ -87,10 +89,15 @@ docker compose up traefik -d
 # RQ-Dashboard: ${SERVER_URL}:9181
 docker compose up qdrant redis rq-dashboard -d
 
+# Launch Local LLM Inference API on GPU0,1 in Tensor Parallel Configuration (uses vLLM)
+# Preferred if GPU VRAM < 80GB and GPUs connected via PCIe 4.0 or faster (e.g. NVLink)
+# The default LLM is a quantized Llama 3.1 70B model, which requires 37GB VRAM for the model itself.
+docker compose up llmtp2 -d
+
 # Launch Local LLM Inference API on GPU0,1,2 (uses vLLM)
 # Traefik will distribute API requests across the LLM containers in round-robin fashion
 # The default LLM is a quantized Llama 3.1 70B model, which requires 37GB VRAM for the model itself.
-docker compose up llm0 llm1 llm2 -d
+# docker compose up llm0 llm1 llm2 -d
 
 # Launch Prometheus, Grafana dashboards for monitoring vLLM inference throughput
 # Prometheus Dashboard: ${SERVER_URL}:9090

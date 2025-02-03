@@ -20,8 +20,9 @@ with open("lorem_ipsum.txt") as f:
 
 model_name = os.environ["LLM_MODEL_NAME"]
 base_url = os.environ["LLM_URL_BASE"]
+hf_home = os.environ["HF_HOME"]
 tokenizer_model_name = os.environ["TOKENIZER_MODEL_NAME"]
-tokenizer = AutoTokenizer.from_pretrained(tokenizer_model_name)
+tokenizer = AutoTokenizer.from_pretrained(tokenizer_model_name, cache_dir=hf_home)
 # %%
 token_ids = tokenizer.encode(text)
 print("Full Text. Num Tokens: ", len(token_ids))

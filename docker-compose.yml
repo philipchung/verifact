@@ -59,20 +59,50 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro # Allow Traefik to listen to the Docker events
 
   ### 2. vLLM Service Containers - load balanced in vllm-service (GPU device and Ports are different)
+
+  # Docker Containers using Two GPUs in Tensor Parallelism Configuration
+  llmtp2:
+    image: vllm/vllm-openai:v0.6.6.post1
+    container_name: llmtp2
+    profiles: [ all, llm ]
+    restart: unless-stopped
+    shm_size: '4gb'
+    # vLLM server config
+    command: >-
+      --model=${LLM_MODEL_NAME} --dtype=${DTYPE} --max-model-len=${LLM_MAX_MODEL_LEN} --gpu-memory-utilization=${GPU_MEMORY_UTILIZATION} --tensor-parallel-size=2 --pipeline-parallel-size=1 --block-size=${BLOCK_SIZE} --swap-space=${SWAP_SPACE} --guided-decoding-backend=${GUIDED_DECODING_BACKEND} ${EXTRA_ARGS}
+    ports:
+      - ${LLMTP2_HOST_PORT}:${LLM_CONTAINER_PORT}
+    expose:
+      - ${LLM_CONTAINER_PORT}
+    volumes:
+      - ${HF_HOME}:/root/.cache/huggingface:rw
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [ gpu ]
+              device_ids: [ '${TP2_GPU0}', '${TP2_GPU1}' ] # <--- GPU Devices available to container
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.llm_tp2.rule=Host(`llm.${DOMAIN}`)
+      - traefik.http.routers.llm_tp2.service=llm-service
+      - traefik.http.services.llm-service.loadbalancer.server.port=${LLM_CONTAINER_PORT}
+
   llm0:
-    image: vllm/vllm-openai:v0.6.4
+    image: vllm/vllm-openai:v0.6.6.post1
     container_name: llm0
     restart: unless-stopped
     shm_size: '4gb'
     # vLLM server config
     command: >-
-      --model=${LLM_MODEL_NAME}   --dtype=${DTYPE}   --max-model-len=${LLM_MAX_MODEL_LEN}   --gpu-memory-utilization=${GPU0_MEMORY_UTILIZATION}   --tensor-parallel-size=${TENSOR_PARALLEL_SIZE}   --pipeline-parallel-size=${PIPELINE_PARALLEL_SIZE}   --block-size=${BLOCK_SIZE}   --swap-space=${SWAP_SPACE}   --guided-decoding-backend=${GUIDED_DECODING_BACKEND}  ${EXTRA_ARGS}
+      --model=${LLM_MODEL_NAME}   --dtype=${DTYPE}   --max-model-len=${LLM_MAX_MODEL_LEN}   --gpu-memory-utilization=${GPU0_MEMORY_UTILIZATION}   --tensor-parallel-size=1   --pipeline-parallel-size=1   --block-size=${BLOCK_SIZE}   --swap-space=${SWAP_SPACE}   --guided-decoding-backend=${GUIDED_DECODING_BACKEND}  ${EXTRA_ARGS}
     ports:
       - ${LLM0_HOST_PORT}:${LLM_CONTAINER_PORT}
     expose:
       - ${LLM_CONTAINER_PORT}
     volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+      - ${HF_HOME}:/root/.cache/huggingface:rw
     deploy:
       resources:
         reservations:
@@ -87,19 +117,19 @@ services:
       - traefik.http.services.llm-service.loadbalancer.server.port=${LLM_CONTAINER_PORT}
 
   llm1:
-    image: vllm/vllm-openai:v0.6.4
+    image: vllm/vllm-openai:v0.6.6.post1
     container_name: llm1
     restart: unless-stopped
     shm_size: '4gb'
     # vLLM server config
     command: >-
-      --model=${LLM_MODEL_NAME}   --dtype=${DTYPE}   --max-model-len=${LLM_MAX_MODEL_LEN}   --gpu-memory-utilization=${GPU1_MEMORY_UTILIZATION}   --tensor-parallel-size=${TENSOR_PARALLEL_SIZE}   --pipeline-parallel-size=${PIPELINE_PARALLEL_SIZE}   --block-size=${BLOCK_SIZE}   --swap-space=${SWAP_SPACE}   --guided-decoding-backend=${GUIDED_DECODING_BACKEND}  ${EXTRA_ARGS} 
+      --model=${LLM_MODEL_NAME}   --dtype=${DTYPE}   --max-model-len=${LLM_MAX_MODEL_LEN}   --gpu-memory-utilization=${GPU1_MEMORY_UTILIZATION}   --tensor-parallel-size=1   --pipeline-parallel-size=1   --block-size=${BLOCK_SIZE}   --swap-space=${SWAP_SPACE}   --guided-decoding-backend=${GUIDED_DECODING_BACKEND}  ${EXTRA_ARGS} 
     ports:
       - ${LLM1_HOST_PORT}:${LLM_CONTAINER_PORT}
     expose:
       - ${LLM_CONTAINER_PORT}
     volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+      - ${HF_HOME}:/root/.cache/huggingface:rw
     deploy:
       resources:
         reservations:
@@ -114,19 +144,19 @@ services:
       - traefik.http.services.llm-service.loadbalancer.server.port=${LLM_CONTAINER_PORT}
 
   llm2:
-    image: vllm/vllm-openai:v0.6.4
+    image: vllm/vllm-openai:v0.6.6.post1
     container_name: llm2
     restart: unless-stopped
     shm_size: '4gb'
     # vLLM server config
     command: >-
-      --model=${LLM_MODEL_NAME}  --dtype=${DTYPE}  --max-model-len=${LLM_MAX_MODEL_LEN}  --gpu-memory-utilization=${GPU2_MEMORY_UTILIZATION}  --tensor-parallel-size=${TENSOR_PARALLEL_SIZE}  --pipeline-parallel-size=${PIPELINE_PARALLEL_SIZE}  --block-size=${BLOCK_SIZE}  --swap-space=${SWAP_SPACE}  --guided-decoding-backend=${GUIDED_DECODING_BACKEND} ${EXTRA_ARGS} 
+      --model=${LLM_MODEL_NAME}  --dtype=${DTYPE}  --max-model-len=${LLM_MAX_MODEL_LEN}  --gpu-memory-utilization=${GPU2_MEMORY_UTILIZATION}  --tensor-parallel-size=1  --pipeline-parallel-size=1  --block-size=${BLOCK_SIZE}  --swap-space=${SWAP_SPACE}  --guided-decoding-backend=${GUIDED_DECODING_BACKEND} ${EXTRA_ARGS} 
     ports:
       - ${LLM2_HOST_PORT}:${LLM_CONTAINER_PORT}
     expose:
       - ${LLM_CONTAINER_PORT}
     volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+      - ${HF_HOME}:/root/.cache/huggingface:rw
     deploy:
       resources:
         reservations:
@@ -141,19 +171,19 @@ services:
       - traefik.http.services.llm-service.loadbalancer.server.port=${LLM_CONTAINER_PORT}
 
   llm3:
-    image: vllm/vllm-openai:v0.6.4
+    image: vllm/vllm-openai:v0.6.6.post1
     container_name: llm3
     restart: unless-stopped
     shm_size: '4gb'
     # vLLM server config
     command: >-
-      --model=${LLM_MODEL_NAME}   --dtype=${DTYPE}   --max-model-len=${LLM_MAX_MODEL_LEN}   --gpu-memory-utilization=${GPU3_MEMORY_UTILIZATION}   --tensor-parallel-size=${TENSOR_PARALLEL_SIZE}   --pipeline-parallel-size=${PIPELINE_PARALLEL_SIZE}   --block-size=${BLOCK_SIZE}   --swap-space=${SWAP_SPACE}   --guided-decoding-backend=${GUIDED_DECODING_BACKEND} ${EXTRA_ARGS} 
+      --model=${LLM_MODEL_NAME}   --dtype=${DTYPE}   --max-model-len=${LLM_MAX_MODEL_LEN}   --gpu-memory-utilization=${GPU3_MEMORY_UTILIZATION}   --tensor-parallel-size=1   --pipeline-parallel-size=1   --block-size=${BLOCK_SIZE}   --swap-space=${SWAP_SPACE}   --guided-decoding-backend=${GUIDED_DECODING_BACKEND} ${EXTRA_ARGS} 
     ports:
       - ${LLM3_HOST_PORT}:${LLM_CONTAINER_PORT}
     expose:
       - ${LLM_CONTAINER_PORT}
     volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+      - ${HF_HOME}:/root/.cache/huggingface:rw
     deploy:
       resources:
         reservations:
@@ -183,7 +213,7 @@ services:
     expose:
       - ${EMBED_CONTAINER_PORT}
     volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+      - ${HF_HOME}:/root/.cache/huggingface:rw
     deploy:
       resources:
         reservations:
@@ -212,7 +242,7 @@ services:
     expose:
       - ${EMBED_CONTAINER_PORT}
     volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+      - ${HF_HOME}:/root/.cache/huggingface:rw
     deploy:
       resources:
         reservations:
@@ -241,7 +271,7 @@ services:
     expose:
       - ${EMBED_CONTAINER_PORT}
     volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+      - ${HF_HOME}:/root/.cache/huggingface:rw
     deploy:
       resources:
         reservations:
@@ -271,7 +301,7 @@ services:
     expose:
       - ${EMBED_CONTAINER_PORT}
     volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+      - ${HF_HOME}:/root/.cache/huggingface:rw
     deploy:
       resources:
         reservations:
@@ -301,7 +331,7 @@ services:
     expose:
       - ${RERANK_CONTAINER_PORT}
     volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+      - ${HF_HOME}:/root/.cache/huggingface:rw
     deploy:
       resources:
         reservations:
@@ -330,7 +360,7 @@ services:
     expose:
       - ${RERANK_CONTAINER_PORT}
     volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+      - ${HF_HOME}:/root/.cache/huggingface:rw
     deploy:
       resources:
         reservations:
@@ -359,7 +389,7 @@ services:
     expose:
       - ${RERANK_CONTAINER_PORT}
     volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+      - ${HF_HOME}:/root/.cache/huggingface:rw
     deploy:
       resources:
         reservations:
@@ -388,7 +418,7 @@ services:
     expose:
       - ${RERANK_CONTAINER_PORT}
     volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+      - ${HF_HOME}:/root/.cache/huggingface:rw
     deploy:
       resources:
         reservations:
