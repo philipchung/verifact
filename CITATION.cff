@@ -1,0 +1,115 @@
+cff-version: 1.2.0
+title: >-
+  VeriFact: Verifying Facts in LLM-Generated Clinical Text
+  with Electronic Health Records
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Philip
+    family-names: Chung
+    orcid: "https://orcid.org/0000-0002-1194-7510"
+  - given-names: Akshay
+    family-names: Swaminathan
+    orcid: "https://orcid.org/0000-0003-3426-9289"
+  - given-names: Alex
+    family-names: Goodell
+    orcid: "https://orcid.org/0000-0003-0229-8843"
+  - given-names: Yeasul
+    family-names: Kim
+    orcid: "https://orcid.org/0000-0001-8289-1297"
+  - given-names: S. Momsen
+    family-names: Reincke
+    orcid: "https://orcid.org/0000-0002-8132-3527"
+  - given-names: Lichy
+    family-names: Han
+    orcid: "https://orcid.org/0000-0002-5785-0968"
+  - given-names: Ben
+    family-names: Deverett
+    orcid: "https://orcid.org/0000-0002-3119-7649"
+  - given-names: Mohammad Amin
+    family-names: Sadeghi
+    orcid: "https://orcid.org/0000-0003-3335-1758"
+  - given-names: Abdel Badih
+    family-names: Ariss
+    orcid: "https://orcid.org/0000-0003-0269-3130"
+  - given-names: Marc
+    family-names: Ghanem
+    orcid: "https://orcid.org/0000-0002-7479-7994"
+  - given-names: David
+    family-names: Seong
+    orcid: "https://orcid.org/0000-0002-8980-5731"
+  - given-names: Andrew
+    family-names: Lee
+    orcid: "https://orcid.org/0009-0006-8964-6677"
+  - given-names: Caitlin
+    family-names: Coombes
+    orcid: "https://orcid.org/0000-0001-8414-4279"
+  - given-names: Brad
+    family-names: Bradshaw
+    orcid: "https://orcid.org/0000-0001-5371-9682"
+  - given-names: Mahir
+    family-names: Sufian
+    orcid: "https://orcid.org/0000-0002-9702-4556"
+  - given-names: Hyo Jung
+    family-names: Hong
+    orcid: "https://orcid.org/0000-0001-7674-8398"
+  - given-names: Teresa
+    family-names: Nguyen
+    orcid: "https://orcid.org/0000-0001-9522-8937"
+  - given-names: Mohammad
+    family-names: Rasouli
+    orcid: "https://orcid.org/0000-0001-7181-5803"
+  - given-names: Komal
+    family-names: Kamra
+    orcid: "https://orcid.org/0000-0003-4700-583X"
+  - given-names: Mark
+    family-names: Burbridge
+    orcid: "https://orcid.org/0000-0001-6765-5739"
+  - given-names: James
+    family-names: McAvoy
+    orcid: "https://orcid.org/0009-0006-3838-5438"
+  - given-names: Roya
+    family-names: Saffary
+    orcid: "https://orcid.org/0000-0001-9959-9399"
+  - given-names: Stephen
+    family-names: Ma
+    orcid: "https://orcid.org/0000-0003-3738-9569"
+  - given-names: Dev
+    family-names: Dash
+    orcid: "https://orcid.org/0000-0002-0223-1641"
+  - given-names: James
+    family-names: Xie
+    orcid: "https://orcid.org/0000-0002-9511-0012"
+  - given-names: Ellen
+    family-names: Wang
+    orcid: "https://orcid.org/0000-0002-9151-938X"
+  - given-names: Clifford
+    family-names: Schmiesing
+    orcid: "https://orcid.org/0000-0002-8979-5959"
+  - given-names: Nigam
+    family-names: Shah
+    orcid: "https://orcid.org/0000-0001-9385-7158"
+  - given-names: Nima
+    family-names: Aghaeepour
+    orcid: "https://orcid.org/0000-0002-6117-8764"
+identifiers:
+  - type: doi
+    value: 10.48550/arXiv.2501.16672
+    description: arXiv Preprint
+repository-code: "https://github.com/philipchung/verifact"
+abstract: >-
+  VeriFact: A long-form text fact-checker that verifies any
+  text written about a patient against their own electronic
+  health record (EHR). VeriFact decomposes the text into a
+  set of propositions which are individually verified
+  against the patient's EHR. VeriFact combines RAG with
+  LLM-as-a-Judge to perform fact verification.
+keywords:
+  - Fact Checking
+  - Evaluation
+  - Large Language Models
+  - Medicine
+  - Electronic Health Records
+license: MIT

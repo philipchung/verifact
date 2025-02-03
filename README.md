@@ -1,5 +1,7 @@
 # Verifying Facts in LLM-Generated Clinical Text with Electronic Health Records
 
+Preprint Manuscript: [VeriFact: Verifying Facts in LLM-Generated Clinical Text with Electronic Health Records](https://arxiv.org/abs/2501.16672)
+
 `VeriFact`: A long-form text fact-checker that verifies any text written about a patient against their own electronic health record (EHR). VeriFact decomposes the text into a set of propositions which are individually verified against the patient's EHR. VeriFact combines RAG with LLM-as-a-Judge to perform fact verification.
 
 `VeriFact-BHC`: A dataset to benchmark `VeriFact` performance against human clinicians. This dataset is derived from MIMIC-III Clinical Database v1.4. It contains human-written Brief Hospital Course (BHC) narratives typically found in discharge summaries and also a LLM-written BHC for 100 patients. It also contains the reference EHR for each patient. All BHC narratives are decomposed into propositions which are annotated by clinicians to develop a human clinician ground truth.
@@ -120,3 +122,17 @@ The vLLM inference service metrics are monitored via Prometheus and a Grafana da
 ## Performance
 
 Performance of locally-hosted models is dependent on your GPU accelerator and local hardware. Lower latency and higher throughput may be achieved by replacing locally-hosted models with dedicated API inference services.
+
+## Citation
+
+```
+@article{Chung2025,
+      title={VeriFact: Verifying Facts in LLM-Generated Clinical Text with Electronic Health Records}, 
+      author={Philip Chung and Akshay Swaminathan and Alex J. Goodell and Yeasul Kim and S. Momsen Reincke and Lichy Han and Ben Deverett and Mohammad Amin Sadeghi and Abdel-Badih Ariss and Marc Ghanem and David Seong and Andrew A. Lee and Caitlin E. Coombes and Brad Bradshaw and Mahir A. Sufian and Hyo Jung Hong and Teresa P. Nguyen and Mohammad R. Rasouli and Komal Kamra and Mark A. Burbridge and James C. McAvoy and Roya Saffary and Stephen P. Ma and Dev Dash and James Xie and Ellen Y. Wang and Clifford A. Schmiesing and Nigam Shah and Nima Aghaeepour},
+      year={2025},
+      eprint={2501.16672},
+      archivePrefix={arXiv},
+      primaryClass={cs.AI},
+      url={https://arxiv.org/abs/2501.16672}, 
+}
+```
