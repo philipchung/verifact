@@ -110,6 +110,22 @@ def get_llm(
         "mistralai/Mixtral-8x7B-v0.1",
         "mistralai/Mixtral-8x22B-v0.1",
     )
+    DEEPSEEK_R1_MODELS = (
+        "deepseek-ai/DeepSeek-R1",
+        "deepseek-ai/DeepSeek-R1-Zero",
+        "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
+        "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
+        "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B",
+        "deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
+        "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+        "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+        "casperhansen/deepseek-r1-distill-llama-70b-awq",
+        "casperhansen/deepseek-r1-distill-qwen-32b-awq",
+        "casperhansen/deepseek-r1-distill-qwen-14b-awq",
+        "casperhansen/deepseek-r1-distill-llama-8b-awq",
+        "casperhansen/deepseek-r1-distill-qwen-7b-awq",
+        "casperhansen/deepseek-r1-distill-qwen-1.5b-awq",
+    )
     match model_name:
         case x if x in LLAMA_3_MODELS:
             # Llama 3 Prompt Template Issue (https://github.com/vllm-project/vllm/issues/4180)
@@ -117,6 +133,8 @@ def get_llm(
                 kwargs["extra_body"] = {}
             kwargs["extra_body"] |= {"stop_token_ids": [128001, 128009]}
         case x if x in MISTRAL_MODELS:
+            collapse_system_prompt = True
+        case x if x in DEEPSEEK_R1_MODELS:
             collapse_system_prompt = True
         case _:
             pass
@@ -137,6 +155,44 @@ def get_llm(
         system_prompt=system_prompt,
         temperature=temperature,
         additional_kwargs=additional_kwargs,
+    )
+
+
+def get_aux_llm(
+    model_name: str | None = None,
+    api_base: str | None = None,
+    context_window: int | None = None,
+    max_completion_tokens: int | None = None,
+    is_chat_model: bool = True,
+    collapse_system_prompt: bool = False,
+    reuse_client: bool = False,
+    max_retries: int = 10,
+    timeout: float | None = None,
+    system_prompt: str = DEFAULT_SYSTEM_PROMPT,
+    temperature: float = 0.7,
+    top_p: float = 1.0,
+    **kwargs,
+) -> OpenAILike:
+    """Get Auxillary LLM Model. This is mainly used when we also use a reasoning model.
+    As of vLLM v0.7.2, reasoning models are not compatible with Structured Output generation.
+    So after the main LLM (reasoning model) generates a reasoning chain and output,
+    the output is passed to the auxillary LLM which is set to generate structured output
+    from the original reasoning LLM's output.
+    """
+    return get_llm(
+        model_name=model_name or os.environ["AUX_LLM_MODEL_NAME"],
+        api_base=api_base or os.environ["AUX_LLM_URL_BASE"],
+        context_window=context_window or os.environ["AUX_LLM_MAX_MODEL_LEN"],
+        max_completion_tokens=max_completion_tokens,
+        is_chat_model=is_chat_model,
+        collapse_system_prompt=collapse_system_prompt,
+        reuse_client=reuse_client,
+        max_retries=max_retries,
+        timeout=timeout,
+        system_prompt=system_prompt,
+        temperature=temperature,
+        top_p=top_p,
+        **kwargs,
     )
 
 

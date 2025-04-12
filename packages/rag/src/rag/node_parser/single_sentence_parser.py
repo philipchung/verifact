@@ -21,8 +21,8 @@ from rag import MIMIC_NODE, SENTENCE_NODE
 from rag.node_parser.node_utils import (
     count_sentences,
     count_tokens,
+    mimic_node_id_fn,
     nltk_split_sentences,
-    node_id_from_string,
 )
 from rag.schema import BaseNode, Document, TextNode
 
@@ -45,7 +45,7 @@ class SingleSentenceNodeParser(NodeParser):
         default=False, description="Flag for whether to include parent text in metadata."
     )
     id_func: Callable[[int, Document], str] = Field(
-        default=node_id_from_string,
+        default=mimic_node_id_fn,
         description="A function that generates a unique ID for each node."
         "Function must take 3 arguments `i` (int), `node` (BaseNode), and `text` (str)",
         exclude=True,
@@ -69,7 +69,7 @@ class SingleSentenceNodeParser(NodeParser):
     ) -> "SingleSentenceNodeParser":
         sentence_splitter = sentence_splitter or nltk_split_sentences
         callback_manager = callback_manager or CallbackManager([])
-        id_func = id_func or node_id_from_string
+        id_func = id_func or mimic_node_id_fn
         return cls(
             sentence_splitter=sentence_splitter,
             include_parent_text=include_parent_text,
@@ -89,7 +89,7 @@ class SingleSentenceNodeParser(NodeParser):
         return count_sentences(text)
 
     def _build_nodes_from_sentences_list(
-        self, sentences: list[str], original_node: BaseNode
+        self, sentences: list[str], original_node: BaseNode, **kwargs
     ) -> list[BaseNode]:
         """Builds nodes from claims list."""
         # Create New Node for Each Sentence
@@ -97,8 +97,15 @@ class SingleSentenceNodeParser(NodeParser):
         for i, sentence in enumerate(sentences):
             node_text = sentence
             parent_text = original_node.get_content(MetadataMode.NONE)
-            # Create Unique ID for New Node based on Source Node, New Node Text, and Index
-            node_id = self.id_func(f"{original_node.node_id}-{parent_text}-{i}-{node_text}")
+            # Create Unique ID for New Node - This will be unique for each patient note,
+            # author_type, proposition_type/node_kind, and extracted text
+            node_id = self.id_func(
+                text=node_text,
+                subject_id=kwargs.get("subject_id", ""),
+                row_id=kwargs.get("row_id", ""),
+                author_type=kwargs.get("author_type", ""),
+                node_kind=getattr(self, "node_kind", ""),
+            )
             metadata = {
                 # Monotonically increasing index (relative position in original node)
                 "node_monotonic_idx": i,
@@ -152,7 +159,7 @@ class SingleSentenceNodeParser(NodeParser):
             node_text = node.get_content(MetadataMode.NONE)
             sentences: list[str] = self.sentence_splitter(node_text)
             # Build a New Node for each Sentence
-            sentence_nodes = self._build_nodes_from_sentences_list(sentences, node)
+            sentence_nodes = self._build_nodes_from_sentences_list(sentences, node, **kwargs)
             output_nodes.extend(sentence_nodes)
         return output_nodes
 

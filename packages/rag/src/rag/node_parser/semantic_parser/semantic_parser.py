@@ -50,8 +50,8 @@ from rag import MIMIC_NODE, SEMANTIC_NODE
 from rag.node_parser.node_utils import (
     count_sentences,
     count_tokens,
+    mimic_node_id_fn,
     nltk_split_sentences,
-    node_id_from_string,
 )
 from rag.node_parser.semantic_parser.semantic_utils import (
     SentenceCombination,
@@ -164,7 +164,7 @@ class SemanticSplitterNodeParser(NodeParser):
         default=False, description="Flag for whether to include parent text in metadata."
     )
     id_func: Callable[[int, Document], str] = Field(
-        default=node_id_from_string,
+        default=mimic_node_id_fn,
         description="A function that generates a unique ID for each node."
         "Function must take 3 arguments `i` (int), `node` (BaseNode), and `text` (str)",
         exclude=True,
@@ -214,7 +214,7 @@ class SemanticSplitterNodeParser(NodeParser):
                     "please run `pip install llama-index-embeddings-openai`"
                 ) from err
 
-        id_func = id_func or node_id_from_string
+        id_func = id_func or mimic_node_id_fn
 
         return cls(
             sentence_splitter=sentence_splitter,
@@ -246,6 +246,7 @@ class SemanticSplitterNodeParser(NodeParser):
         self,
         semantic_splits: list[str],
         original_node: BaseNode,
+        **kwargs,
     ) -> list[BaseNode]:
         """Build nodes from semantic splits."""
         # Create New Node for Each Semantic Split
@@ -253,8 +254,15 @@ class SemanticSplitterNodeParser(NodeParser):
         for i, split in enumerate(semantic_splits):
             node_text = split
             parent_text = original_node.get_content(MetadataMode.NONE)
-            # Create Unique ID for New Node based on Source Node ID, New Node Text, and Index
-            node_id = self.id_func(f"{original_node.node_id}-{parent_text}-{i}-{node_text}")
+            # Create Unique ID for New Node - This will be unique for each patient note,
+            # author_type, proposition_type/node_kind, and extracted text
+            node_id = self.id_func(
+                text=node_text,
+                subject_id=kwargs.get("subject_id", ""),
+                row_id=kwargs.get("row_id", ""),
+                author_type=kwargs.get("author_type", ""),
+                node_kind=getattr(self, "node_kind", ""),
+            )
             metadata = {
                 # Monotonically increasing index (relative position in original node)
                 "node_monotonic_idx": i,
@@ -338,7 +346,7 @@ class SemanticSplitterNodeParser(NodeParser):
             if not self.split_if_less_than_max_chunk_size and doc_tokens_ct <= self.max_chunk_size:
                 ## Document is Small Enough to be a Single Node
                 semantic_node = self._build_nodes_from_semantic_splits(
-                    [doc_node.get_content(MetadataMode.NONE)], doc_node
+                    [doc_node.get_content(MetadataMode.NONE)], doc_node, **kwargs
                 )[0]
                 output_nodes.append(semantic_node)
             else:
@@ -347,7 +355,9 @@ class SemanticSplitterNodeParser(NodeParser):
                 sbs: list[SplitBundle] = self._create_semantic_splits([doc_node], show_progress)
                 text_chunks = flatten_list_of_list([sb.text_chunks for sb in sbs])
                 # Build a New Node for each Semantic Split
-                semantic_nodes = self._build_nodes_from_semantic_splits(text_chunks, doc_node)
+                semantic_nodes = self._build_nodes_from_semantic_splits(
+                    text_chunks, doc_node, **kwargs
+                )
                 output_nodes.extend(semantic_nodes)
 
             if return_details:

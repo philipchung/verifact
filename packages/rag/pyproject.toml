@@ -6,12 +6,12 @@ readme = "README.md"
 authors = [{ name = "Philip Chung", email = "philip.f.chung@gmail.com" }]
 requires-python = ">=3.11.4"
 dependencies = [
-    "llama-index>=0.12.4",
-    "llama-index-core>=0.12.4",
+    "llama-index>=0.12.4, <=0.12.5",
+    "llama-index-core>=0.12.4, <=0.12.5",
     "llama-index-embeddings-huggingface>=0.4.0",
     "llama-index-llms-azure-openai>=0.3.0",
     "llama-index-llms-huggingface>=0.4.0",
-    "llama-index-llms-openai>=0.3.3",
+    "llama-index-llms-openai>=0.3.0",
     "llama-index-llms-openai-like>=0.3.0",
     "llama-index-vector-stores-qdrant>=0.4.0",
     "pydantic>=2.10.3",

@@ -131,7 +131,7 @@
                         "uid": "${DS_PROMETHEUS}"
                     },
                     "disableTextWrap": false,
-                    "editorMode": "builder",
+                    "editorMode": "code",
                     "exemplar": false,
                     "expr": "vllm:num_requests_running",
                     "format": "time_series",
@@ -179,6 +179,13 @@
                     "options": {
                         "regex": "(.*instance=\"host.docker.internal:8104\", job=\"vllm\",.*)",
                         "renamePattern": "LLM Tensor Parallel"
+                    }
+                },
+                {
+                    "id": "renameByRegex",
+                    "options": {
+                        "regex": "(.*instance=\"host.docker.internal:8105\", job=\"vllm\",.*)",
+                        "renamePattern": "LLM Auxillary"
                     }
                 }
             ],
@@ -271,7 +278,7 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "fdv9kpt4duha8f"
+                        "uid": "${DS_PROMETHEUS}"
                     },
                     "disableTextWrap": false,
                     "editorMode": "builder",
@@ -322,6 +329,13 @@
                     "options": {
                         "regex": "(.*instance=\"host.docker.internal:8104\", job=\"vllm\",.*)",
                         "renamePattern": "LLM Tensor Parallel"
+                    }
+                },
+                {
+                    "id": "renameByRegex",
+                    "options": {
+                        "regex": "(.*instance=\"host.docker.internal:8105\", job=\"vllm\",.*)",
+                        "renamePattern": "LLM Auxillary"
                     }
                 }
             ],
@@ -414,12 +428,12 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "fdv9kpt4duha8f"
+                        "uid": "${DS_PROMETHEUS}"
                     },
                     "disableTextWrap": false,
                     "editorMode": "builder",
                     "exemplar": false,
-                    "expr": "vllm:avg_generation_throughput_toks_per_s",
+                    "expr": "rate(vllm:generation_tokens_total[$__rate_interval])",
                     "format": "time_series",
                     "fullMetaSearch": false,
                     "includeNullMetadata": true,
@@ -465,6 +479,13 @@
                     "options": {
                         "regex": "(.*instance=\"host.docker.internal:8104\", job=\"vllm\",.*)",
                         "renamePattern": "LLM Tensor Parallel"
+                    }
+                },
+                {
+                    "id": "renameByRegex",
+                    "options": {
+                        "regex": "(.*instance=\"host.docker.internal:8105\", job=\"vllm\",.*)",
+                        "renamePattern": "LLM Auxillary"
                     }
                 }
             ],
@@ -557,12 +578,12 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "fdv9kpt4duha8f"
+                        "uid": "${DS_PROMETHEUS}"
                     },
                     "disableTextWrap": false,
                     "editorMode": "builder",
                     "exemplar": false,
-                    "expr": "vllm:avg_prompt_throughput_toks_per_s",
+                    "expr": "rate(vllm:prompt_tokens_total[$__rate_interval])",
                     "format": "time_series",
                     "fullMetaSearch": false,
                     "includeNullMetadata": true,
@@ -608,6 +629,13 @@
                     "options": {
                         "regex": "(.*instance=\"host.docker.internal:8104\", job=\"vllm\",.*)",
                         "renamePattern": "LLM Tensor Parallel"
+                    }
+                },
+                {
+                    "id": "renameByRegex",
+                    "options": {
+                        "regex": "(.*instance=\"host.docker.internal:8105\", job=\"vllm\",.*)",
+                        "renamePattern": "LLM Auxillary"
                     }
                 }
             ],
@@ -700,7 +728,7 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "fdv9kpt4duha8f"
+                        "uid": "${DS_PROMETHEUS}"
                     },
                     "disableTextWrap": false,
                     "editorMode": "builder",
@@ -752,9 +780,421 @@
                         "regex": "(.*instance=\"host.docker.internal:8104\", job=\"vllm\",.*)",
                         "renamePattern": "LLM Tensor Parallel"
                     }
+                },
+                {
+                    "id": "renameByRegex",
+                    "options": {
+                        "regex": "(.*instance=\"host.docker.internal:8105\", job=\"vllm\",.*)",
+                        "renamePattern": "LLM Auxillary"
+                    }
                 }
             ],
             "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 0,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "auto",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    }
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 17
+            },
+            "id": 21,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "11.4.0",
+            "targets": [
+                {
+                    "disableTextWrap": false,
+                    "editorMode": "builder",
+                    "expr": "vllm:gpu_prefix_cache_hit_rate",
+                    "fullMetaSearch": false,
+                    "includeNullMetadata": true,
+                    "legendFormat": "__auto",
+                    "range": true,
+                    "refId": "A",
+                    "useBackend": false
+                }
+            ],
+            "title": "Prefix Cache Hit Rate",
+            "transformations": [
+                {
+                    "id": "renameByRegex",
+                    "options": {
+                        "regex": "(.*instance=\"host.docker.internal:8100\", job=\"vllm\",.*)",
+                        "renamePattern": "LLM GPU0"
+                    }
+                },
+                {
+                    "id": "renameByRegex",
+                    "options": {
+                        "regex": "(.*instance=\"host.docker.internal:8101\", job=\"vllm\",.*)",
+                        "renamePattern": "LLM GPU1"
+                    }
+                },
+                {
+                    "id": "renameByRegex",
+                    "options": {
+                        "regex": "(.*instance=\"host.docker.internal:8102\", job=\"vllm\",.*)",
+                        "renamePattern": "LLM GPU2"
+                    }
+                },
+                {
+                    "id": "renameByRegex",
+                    "options": {
+                        "regex": "(.*instance=\"host.docker.internal:8103\", job=\"vllm\",.*)",
+                        "renamePattern": "LLM GPU3"
+                    }
+                },
+                {
+                    "id": "renameByRegex",
+                    "options": {
+                        "regex": "(.*instance=\"host.docker.internal:8104\", job=\"vllm\",.*)",
+                        "renamePattern": "LLM Tensor Parallel"
+                    }
+                },
+                {
+                    "id": "renameByRegex",
+                    "options": {
+                        "regex": "(.*instance=\"host.docker.internal:8105\", job=\"vllm\",.*)",
+                        "renamePattern": "LLM Auxillary"
+                    }
+                }
+            ],
+            "type": "timeseries"
+        },
+        {
+            "collapsed": true,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 25
+            },
+            "id": 24,
+            "panels": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "${DS_PROMETHEUS}"
+                    },
+                    "fieldConfig": {
+                        "defaults": {
+                            "color": {
+                                "mode": "palette-classic"
+                            },
+                            "custom": {
+                                "axisBorderShow": false,
+                                "axisCenteredZero": false,
+                                "axisColorMode": "text",
+                                "axisLabel": "",
+                                "axisPlacement": "auto",
+                                "barAlignment": 0,
+                                "barWidthFactor": 0.6,
+                                "drawStyle": "line",
+                                "fillOpacity": 0,
+                                "gradientMode": "none",
+                                "hideFrom": {
+                                    "legend": false,
+                                    "tooltip": false,
+                                    "viz": false
+                                },
+                                "insertNulls": false,
+                                "lineInterpolation": "linear",
+                                "lineWidth": 1,
+                                "pointSize": 5,
+                                "scaleDistribution": {
+                                    "type": "linear"
+                                },
+                                "showPoints": "auto",
+                                "spanNulls": false,
+                                "stacking": {
+                                    "group": "A",
+                                    "mode": "none"
+                                },
+                                "thresholdsStyle": {
+                                    "mode": "off"
+                                }
+                            },
+                            "mappings": [],
+                            "thresholds": {
+                                "mode": "absolute",
+                                "steps": [
+                                    {
+                                        "color": "green",
+                                        "value": null
+                                    },
+                                    {
+                                        "color": "red",
+                                        "value": 80
+                                    }
+                                ]
+                            }
+                        },
+                        "overrides": []
+                    },
+                    "gridPos": {
+                        "h": 8,
+                        "w": 12,
+                        "x": 0,
+                        "y": 26
+                    },
+                    "id": 23,
+                    "options": {
+                        "legend": {
+                            "calcs": [],
+                            "displayMode": "list",
+                            "placement": "bottom",
+                            "showLegend": true
+                        },
+                        "tooltip": {
+                            "mode": "single",
+                            "sort": "none"
+                        }
+                    },
+                    "pluginVersion": "11.4.0",
+                    "targets": [
+                        {
+                            "datasource": {
+                                "type": "prometheus",
+                                "uid": "${DS_PROMETHEUS}"
+                            },
+                            "disableTextWrap": false,
+                            "editorMode": "builder",
+                            "expr": "vllm:spec_decode_num_accepted_tokens_total",
+                            "fullMetaSearch": false,
+                            "includeNullMetadata": true,
+                            "legendFormat": "Speculative Decoding Accepted Tokens",
+                            "range": true,
+                            "refId": "A",
+                            "useBackend": false
+                        },
+                        {
+                            "datasource": {
+                                "type": "prometheus",
+                                "uid": "${DS_PROMETHEUS}"
+                            },
+                            "disableTextWrap": false,
+                            "editorMode": "builder",
+                            "expr": "vllm:spec_decode_num_draft_tokens_total",
+                            "fullMetaSearch": false,
+                            "hide": false,
+                            "includeNullMetadata": true,
+                            "instant": false,
+                            "legendFormat": "Speculative Decoding Draft Tokens",
+                            "range": true,
+                            "refId": "B",
+                            "useBackend": false
+                        },
+                        {
+                            "datasource": {
+                                "type": "prometheus",
+                                "uid": "${DS_PROMETHEUS}"
+                            },
+                            "disableTextWrap": false,
+                            "editorMode": "builder",
+                            "expr": "vllm:spec_decode_num_emitted_tokens_total",
+                            "fullMetaSearch": false,
+                            "hide": false,
+                            "includeNullMetadata": true,
+                            "instant": false,
+                            "legendFormat": "Speculative Decoding Tokens Emitted",
+                            "range": true,
+                            "refId": "C",
+                            "useBackend": false
+                        }
+                    ],
+                    "title": "Speculative Decoding Tokens",
+                    "type": "timeseries"
+                },
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "${DS_PROMETHEUS}"
+                    },
+                    "fieldConfig": {
+                        "defaults": {
+                            "color": {
+                                "mode": "palette-classic"
+                            },
+                            "custom": {
+                                "axisBorderShow": false,
+                                "axisCenteredZero": false,
+                                "axisColorMode": "text",
+                                "axisLabel": "",
+                                "axisPlacement": "auto",
+                                "barAlignment": 0,
+                                "barWidthFactor": 0.6,
+                                "drawStyle": "line",
+                                "fillOpacity": 0,
+                                "gradientMode": "none",
+                                "hideFrom": {
+                                    "legend": false,
+                                    "tooltip": false,
+                                    "viz": false
+                                },
+                                "insertNulls": false,
+                                "lineInterpolation": "linear",
+                                "lineWidth": 1,
+                                "pointSize": 5,
+                                "scaleDistribution": {
+                                    "type": "linear"
+                                },
+                                "showPoints": "auto",
+                                "spanNulls": false,
+                                "stacking": {
+                                    "group": "A",
+                                    "mode": "none"
+                                },
+                                "thresholdsStyle": {
+                                    "mode": "off"
+                                }
+                            },
+                            "mappings": [],
+                            "thresholds": {
+                                "mode": "absolute",
+                                "steps": [
+                                    {
+                                        "color": "green",
+                                        "value": null
+                                    },
+                                    {
+                                        "color": "red",
+                                        "value": 80
+                                    }
+                                ]
+                            }
+                        },
+                        "overrides": []
+                    },
+                    "gridPos": {
+                        "h": 8,
+                        "w": 12,
+                        "x": 12,
+                        "y": 26
+                    },
+                    "id": 22,
+                    "options": {
+                        "legend": {
+                            "calcs": [],
+                            "displayMode": "list",
+                            "placement": "bottom",
+                            "showLegend": true
+                        },
+                        "tooltip": {
+                            "mode": "single",
+                            "sort": "none"
+                        }
+                    },
+                    "pluginVersion": "11.4.0",
+                    "targets": [
+                        {
+                            "datasource": {
+                                "type": "prometheus",
+                                "uid": "${DS_PROMETHEUS}"
+                            },
+                            "disableTextWrap": false,
+                            "editorMode": "builder",
+                            "expr": "vllm:spec_decode_draft_acceptance_rate",
+                            "fullMetaSearch": false,
+                            "includeNullMetadata": true,
+                            "legendFormat": "Speculative Decoding Acceptance Rate",
+                            "range": true,
+                            "refId": "A",
+                            "useBackend": false
+                        },
+                        {
+                            "datasource": {
+                                "type": "prometheus",
+                                "uid": "${DS_PROMETHEUS}"
+                            },
+                            "disableTextWrap": false,
+                            "editorMode": "builder",
+                            "expr": "vllm:spec_decode_efficiency",
+                            "fullMetaSearch": false,
+                            "hide": false,
+                            "includeNullMetadata": true,
+                            "instant": false,
+                            "legendFormat": "Speculative Decoding Efficiency",
+                            "range": true,
+                            "refId": "B",
+                            "useBackend": false
+                        }
+                    ],
+                    "title": "Speculative Decoding Acceptance Rate",
+                    "type": "timeseries"
+                }
+            ],
+            "title": "Speculative Decoding",
+            "type": "row"
         },
         {
             "collapsed": false,
@@ -762,7 +1202,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 25
+                "y": 26
             },
             "id": 15,
             "panels": [],
@@ -835,7 +1275,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 0,
-                "y": 26
+                "y": 27
             },
             "id": 9,
             "options": {
@@ -1001,9 +1441,9 @@
                 "h": 8,
                 "w": 12,
                 "x": 12,
-                "y": 26
+                "y": 27
             },
-            "id": 8,
+            "id": 26,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1073,6 +1513,7 @@
                         "axisLabel": "",
                         "axisPlacement": "auto",
                         "barAlignment": 0,
+                        "barWidthFactor": 0.6,
                         "drawStyle": "line",
                         "fillOpacity": 0,
                         "gradientMode": "none",
@@ -1103,7 +1544,8 @@
                         "mode": "absolute",
                         "steps": [
                             {
-                                "color": "green"
+                                "color": "green",
+                                "value": null
                             },
                             {
                                 "color": "red",
@@ -1119,7 +1561,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 0,
-                "y": 34
+                "y": 35
             },
             "id": 10,
             "options": {
@@ -1134,6 +1576,7 @@
                     "sort": "none"
                 }
             },
+            "pluginVersion": "11.4.0",
             "targets": [
                 {
                     "datasource": {
@@ -1237,6 +1680,7 @@
                         "axisLabel": "",
                         "axisPlacement": "auto",
                         "barAlignment": 0,
+                        "barWidthFactor": 0.6,
                         "drawStyle": "line",
                         "fillOpacity": 0,
                         "gradientMode": "none",
@@ -1267,7 +1711,8 @@
                         "mode": "absolute",
                         "steps": [
                             {
-                                "color": "green"
+                                "color": "green",
+                                "value": null
                             },
                             {
                                 "color": "red",
@@ -1283,7 +1728,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 12,
-                "y": 34
+                "y": 35
             },
             "id": 3,
             "options": {
@@ -1298,6 +1743,7 @@
                     "sort": "none"
                 }
             },
+            "pluginVersion": "11.4.0",
             "targets": [
                 {
                     "datasource": {
@@ -1371,6 +1817,7 @@
                         "axisLabel": "",
                         "axisPlacement": "auto",
                         "barAlignment": 0,
+                        "barWidthFactor": 0.6,
                         "drawStyle": "line",
                         "fillOpacity": 0,
                         "gradientMode": "none",
@@ -1401,7 +1848,8 @@
                         "mode": "absolute",
                         "steps": [
                             {
-                                "color": "green"
+                                "color": "green",
+                                "value": null
                             },
                             {
                                 "color": "red",
@@ -1417,7 +1865,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 0,
-                "y": 42
+                "y": 43
             },
             "id": 5,
             "options": {
@@ -1432,6 +1880,7 @@
                     "sort": "none"
                 }
             },
+            "pluginVersion": "11.4.0",
             "targets": [
                 {
                     "datasource": {
@@ -1535,6 +1984,7 @@
                         "axisLabel": "",
                         "axisPlacement": "auto",
                         "barAlignment": 0,
+                        "barWidthFactor": 0.6,
                         "drawStyle": "line",
                         "fillOpacity": 0,
                         "gradientMode": "none",
@@ -1565,7 +2015,8 @@
                         "mode": "absolute",
                         "steps": [
                             {
-                                "color": "green"
+                                "color": "green",
+                                "value": null
                             },
                             {
                                 "color": "red",
@@ -1581,7 +2032,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 12,
-                "y": 42
+                "y": 43
             },
             "id": 4,
             "options": {
@@ -1596,6 +2047,7 @@
                     "sort": "none"
                 }
             },
+            "pluginVersion": "11.4.0",
             "targets": [
                 {
                     "datasource": {
@@ -1651,7 +2103,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 0,
-                "y": 50
+                "y": 51
             },
             "id": 12,
             "options": {
@@ -1695,7 +2147,7 @@
                     "unit": "none"
                 }
             },
-            "pluginVersion": "11.1.4",
+            "pluginVersion": "11.4.0",
             "targets": [
                 {
                     "datasource": {
@@ -1743,7 +2195,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 12,
-                "y": 50
+                "y": 51
             },
             "id": 13,
             "options": {
@@ -1787,7 +2239,7 @@
                     "unit": "none"
                 }
             },
-            "pluginVersion": "11.1.4",
+            "pluginVersion": "11.4.0",
             "targets": [
                 {
                     "datasource": {
@@ -1828,6 +2280,7 @@
                         "axisLabel": "",
                         "axisPlacement": "auto",
                         "barAlignment": 0,
+                        "barWidthFactor": 0.6,
                         "drawStyle": "line",
                         "fillOpacity": 0,
                         "gradientMode": "none",
@@ -1858,7 +2311,8 @@
                         "mode": "absolute",
                         "steps": [
                             {
-                                "color": "green"
+                                "color": "green",
+                                "value": null
                             },
                             {
                                 "color": "red",
@@ -1873,7 +2327,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 0,
-                "y": 58
+                "y": 59
             },
             "id": 11,
             "options": {
@@ -1888,6 +2342,7 @@
                     "sort": "none"
                 }
             },
+            "pluginVersion": "11.4.0",
             "targets": [
                 {
                     "datasource": {
@@ -1920,7 +2375,7 @@
             {
                 "current": {
                     "text": "prometheus",
-                    "value": "ce7qgcmne9logb"
+                    "value": "fecdfe7mb3kzkd"
                 },
                 "includeAll": false,
                 "label": "datasource",
@@ -1933,12 +2388,12 @@
             },
             {
                 "current": {
-                    "text": "hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4",
-                    "value": "hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4"
+                    "text": "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4",
+                    "value": "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4"
                 },
                 "datasource": {
                     "type": "prometheus",
-                    "uid": "fdv9kpt4duha8f"
+                    "uid": "${DS_PROMETHEUS}"
                 },
                 "definition": "label_values(model_name)",
                 "includeAll": false,
@@ -1956,13 +2411,13 @@
         ]
     },
     "time": {
-        "from": "now-5m",
+        "from": "now-1h",
         "to": "now"
     },
     "timepicker": {},
     "timezone": "",
     "title": "vLLM",
     "uid": "b281712d-8bff-41ef-9f3f-71ad43c05e9b",
-    "version": 2,
+    "version": 30,
     "weekStart": ""
 }

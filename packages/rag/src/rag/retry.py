@@ -16,6 +16,17 @@ from tenacity import (
 from tenacity.stop import stop_base
 
 
+class RetryValueError(ValueError):
+    "ValueError which should be retried."
+
+    def __init__(self, message="Invalid value encountered"):
+        self.message = message
+        super().__init__(self.message)
+
+    def __str__(self):
+        return f"RetryValueError: {self.message}"
+
+
 def create_retry_decorator(
     max_retries: int,
     random_exponential: bool = False,
@@ -45,6 +56,7 @@ def create_retry_decorator(
                 RpcError,
                 UnexpectedResponse,
                 ResponseHandlingException,
+                RetryValueError,
             )
         ),
         before_sleep=before_sleep_log(logger, logging.WARNING),

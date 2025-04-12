@@ -6,9 +6,10 @@ from collections.abc import Awaitable
 from typing import Self
 
 import pandas as pd
-from llama_index.core.bridge.pydantic import Field
 from llama_index.llms.openai import OpenAI
-from pydantic_utils import LLMBaseModel
+from pydantic import Field
+from pydantic_utils import LLM, LLMBaseModel
+from rag import CLAIM_NODE, SENTENCE_NODE
 from rag.llms.openai_like import OpenAILike
 from utils import load_pandas, save_pandas
 
@@ -54,6 +55,17 @@ class ScoreReport(LLMBaseModel):
     not_addressed: list[Verdict] = Field(
         default_factory=list, description="List of not addressed verdicts."
     )
+    # Proposition & EHR Fact Types
+    proposition_type: str = Field(
+        str="", description=f"Proposition type (node kind): {CLAIM_NODE}, {SENTENCE_NODE}."
+    )
+    fact_type: str = Field(
+        str="", description=f"EHR Fact type (node kind): {CLAIM_NODE}, {SENTENCE_NODE}."
+    )
+    # Judge Configuration
+    judge_config: dict | None = Field(
+        default=None, description="Judge configuration used to generate the ScoreReport."
+    )
 
     @classmethod
     def class_name(cls) -> str:
@@ -67,6 +79,9 @@ class ScoreReport(LLMBaseModel):
         llm: OpenAILike | OpenAI | None = None,
         num_workers: int = 8,
         num_invalid_output_retries: int = 3,
+        proposition_type: str | None = None,
+        fact_type: str | None = None,
+        judge_config: dict | None = None,
     ) -> "ScoreReport":
         """Compute scores and explanations from list of verdicts."""
         obj = cls.create(
@@ -74,6 +89,9 @@ class ScoreReport(LLMBaseModel):
             llm=llm,
             num_workers=num_workers,
             num_invalid_output_retries=num_invalid_output_retries,
+            proposition_type=proposition_type,
+            fact_type=fact_type,
+            judge_config=judge_config,
         )
         # Generate Explanations
         if obj and include_explanations:
@@ -88,6 +106,9 @@ class ScoreReport(LLMBaseModel):
         llm: OpenAILike | OpenAI | None = None,
         num_workers: int = 8,
         num_invalid_output_retries: int = 3,
+        proposition_type: str | None = None,
+        fact_type: str | None = None,
+        judge_config: dict | None = None,
     ) -> Awaitable["ScoreReport"]:
         """Compute scores and explanations from list of verdicts."""
         obj = cls.create(
@@ -95,6 +116,9 @@ class ScoreReport(LLMBaseModel):
             llm=llm,
             num_workers=num_workers,
             num_invalid_output_retries=num_invalid_output_retries,
+            proposition_type=proposition_type,
+            fact_type=fact_type,
+            judge_config=judge_config,
         )
         if obj and include_explanations:
             obj = await obj.a_generate_explanations()
@@ -107,6 +131,9 @@ class ScoreReport(LLMBaseModel):
         llm: OpenAILike | OpenAI | None = None,
         num_workers: int = 8,
         num_invalid_output_retries: int = 3,
+        proposition_type: str | None = None,
+        fact_type: str | None = None,
+        judge_config: dict | None = None,
     ) -> "ScoreReport":
         if not verdicts:
             warnings.warn("No verdicts provided. Returning `None` object.")
@@ -147,9 +174,12 @@ class ScoreReport(LLMBaseModel):
             supported=supported,
             not_supported=not_supported,
             not_addressed=not_addressed,
-            llm=llm,
+            llm=llm.llm if isinstance(llm, LLM) else llm,
             num_workers=num_workers,
             num_invalid_output_retries=num_invalid_output_retries,
+            proposition_type=proposition_type,
+            fact_type=fact_type,
+            judge_config=judge_config,
         )
 
     def generate_explanations(self) -> Self:
@@ -164,20 +194,20 @@ class ScoreReport(LLMBaseModel):
         supported_explanation = self._generate(
             json=supported_json_str,
             label="Supported",
-            prompt_fn=prompt_summarize_reasons,
-            pydantic_model=ExplanationSummary,
+            prompt=prompt_summarize_reasons,
+            response_format=ExplanationSummary,
         )
         not_supported_explanation = self._generate(
             json=not_supported_json_str,
             label="Not Supported",
-            prompt_fn=prompt_summarize_reasons,
-            pydantic_model=ExplanationSummary,
+            prompt=prompt_summarize_reasons,
+            response_format=ExplanationSummary,
         )
         not_addressed_explanation = self._generate(
             json=not_addressed_json_str,
             label="Not Addressed",
-            prompt_fn=prompt_summarize_reasons,
-            pydantic_model=ExplanationSummary,
+            prompt=prompt_summarize_reasons,
+            response_format=ExplanationSummary,
         )
         self.supported_explanation = supported_explanation.summary if supported_explanation else ""
         self.not_supported_explanation = (
@@ -200,20 +230,20 @@ class ScoreReport(LLMBaseModel):
             self._a_generate(
                 json=supported_json_str,
                 label="Supported",
-                prompt_fn=prompt_summarize_reasons,
-                pydantic_model=ExplanationSummary,
+                prompt=prompt_summarize_reasons,
+                response_format=ExplanationSummary,
             ),
             self._a_generate(
                 json=not_supported_json_str,
                 label="Not Supported",
-                prompt_fn=prompt_summarize_reasons,
-                pydantic_model=ExplanationSummary,
+                prompt=prompt_summarize_reasons,
+                response_format=ExplanationSummary,
             ),
             self._a_generate(
                 json=not_addressed_json_str,
                 label="Not Addressed",
-                prompt_fn=prompt_summarize_reasons,
-                pydantic_model=ExplanationSummary,
+                prompt=prompt_summarize_reasons,
+                response_format=ExplanationSummary,
             ),
         ]
         (
@@ -234,7 +264,11 @@ class ScoreReport(LLMBaseModel):
         return (
             f"ScoreReport(supported_score={self.supported_score:.2f}, "
             f"not_supported_score={self.not_supported_score:.2f}, "
-            f"not_addressed_score={self.not_addressed_score:.2f})"
+            f"not_addressed_score={self.not_addressed_score:.2f}, "
+            f"supported_count={self.supported_count}, "
+            f"not_supported_count={self.not_supported_count}, "
+            f"not_addressed_count={self.not_addressed_count}, "
+            f"Judge Configuration={self.judge_config})"
         )
 
     def __repr__(self) -> str:
@@ -252,14 +286,14 @@ class ScoreReport(LLMBaseModel):
             f"Supported Explanation: {self.supported_explanation}\n"
             f"Not Supported Explanation: {self.not_supported_explanation}\n"
             f"Not Addressed Explanation: {self.not_addressed_explanation}\n"
+            f"Proposition Type: {self.proposition_type}\n"
+            f"Fact Type: {self.fact_type}\n"
+            f"Judge Configuration: {self.judge_config}"
         )
 
-    def save(self, filepath: str, **kwargs) -> None:
-        """Save the ScoreReport to disk.
-        This method converts the ScoreReport object to a Pandas DataFrame
-        and then saves the attributes to disk.
-        """
-        df = (
+    def to_pandas(self) -> pd.DataFrame:
+        """Convert the ScoreReport to a Pandas DataFrame."""
+        return (
             pd.Series(self.model_dump())
             .loc[
                 [
@@ -277,11 +311,21 @@ class ScoreReport(LLMBaseModel):
                     "supported",
                     "not_supported",
                     "not_addressed",
+                    "proposition_type",
+                    "fact_type",
+                    "judge_config",
                 ]
             ]
             .to_frame()
             .T
         )
+
+    def save(self, filepath: str, **kwargs) -> None:
+        """Save the ScoreReport to disk.
+        This method converts the ScoreReport object to a Pandas DataFrame
+        and then saves the attributes to disk.
+        """
+        df = self.to_pandas()
         save_pandas(df=df, filepath=filepath, **kwargs)
 
     @classmethod

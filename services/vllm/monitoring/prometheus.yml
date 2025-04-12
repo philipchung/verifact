@@ -13,3 +13,4 @@ scrape_configs:
           - "host.docker.internal:8102"
           - "host.docker.internal:8103"
           - "host.docker.internal:8104"
+          - "host.docker.internal:8105"

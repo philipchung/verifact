@@ -3,6 +3,7 @@ from collections.abc import Callable
 from typing import Any
 
 import nltk
+import numpy as np
 import tiktoken
 from llama_index.core.node_parser.node_utils import (
     IdFuncCallable,
@@ -26,6 +27,37 @@ logger = logging.getLogger(__name__)
 
 def node_id_from_string(text: str) -> str:
     return str(create_uuid_from_string(text))
+
+
+def mimic_node_id_fn(
+    text: str,
+    subject_id: int | float | str | None,
+    row_id: int | float | str | None,
+    author_type: str | None,
+    node_kind: str | None,
+) -> str:
+    """Node ID function specialized for MIMIC-III dataset and different node kinds."""
+    match subject_id:
+        case float():
+            subject_id = "" if np.isnan(subject_id) else str(int(subject_id))
+        case int():
+            subject_id = str(subject_id)
+        case str():
+            pass
+        case _:
+            subject_id = ""
+    match row_id:
+        case float():
+            row_id = "" if np.isnan(row_id) else str(int(row_id))
+        case int():
+            row_id = str(row_id)
+        case str():
+            pass
+        case _:
+            row_id = ""
+    author_type = author_type or ""
+    node_kind = node_kind or ""
+    return node_id_from_string(f"{text}-{subject_id}-{row_id}-{author_type}-{node_kind}")
 
 
 def build_nodes_from_splits(

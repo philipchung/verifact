@@ -5,6 +5,14 @@ description = "Verify facts in long-form clinical text using a patient's own ele
 readme = "README.md"
 requires-python = ">=3.11.4"
 dependencies = [
+    "llm_judge",
+    "llm_writer",
+    "proposition_validity",
+    "rag",
+    "irr_metrics",
+    "pydantic_utils",
+    "rq_utils",
+    "utils",
     "httpx>=0.28.1",
     "ipykernel>=6.29.0",
     "ipywidgets>=8.1.5",
@@ -25,6 +33,8 @@ dependencies = [
     "transformers>=4.46.3",
     "typer>=0.15.1",
     "types-tqdm>=4.67.0.20241119",
+    "apprise>=1.9.2",
+    "adjusttext>=1.3.0",
 ]
 
 [tool.uv]
@@ -34,16 +44,16 @@ link-mode = "copy"
 members = ["packages/*"]
 
 [tool.uv.sources]
-irr_metrics = { workspace = true }
 llm_judge = { workspace = true }
 llm_writer = { workspace = true }
 proposition_validity = { workspace = true }
 rag = { workspace = true }
+irr_metrics = { workspace = true }
+pydantic_utils = { workspace = true }
 rq_utils = { workspace = true }
 utils = { workspace = true }
 
 [tool.ruff]
-ignore = []
 extend-include = ["*.ipynb"]
 # Exclude a variety of commonly ignored directories.
 exclude = [
@@ -71,8 +81,6 @@ exclude = [
 line-length = 100
 # Indent with 4 spaces
 indent-width = 4
-# Allow unused variables when underscore-prefixed
-dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 # Assume Python 3.12
 target-version = "py312"
 
@@ -90,16 +98,21 @@ select = [
     # isort
     "I",
 ]
+ignore = []
+# Allow unused variables when underscore-prefixed
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
 
 [tool.ruff.lint.mccabe]
 # Flag errors (`C901`) whenever the complexity level exceeds 10.
 max-complexity = 10
+
 
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
 docstring-code-format = true
 docstring-code-line-length = 80
-
-[tool.ruff.pydocstyle]
-convention = "google"

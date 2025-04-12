@@ -17,12 +17,12 @@ pd.set_option("display.max_columns", None)
 pd.set_option("display.max_rows", 60)
 pd.set_option("display.min_rows", 60)
 
-annotated_dataset_dir = Path(os.environ["ANNOTATED_DATASET_DIR"])
+propositions_dir = Path(os.environ["VERIFACTBHC_PROPOSITIONS_DIR"])
 output_dir = Path.cwd() / "1_proposition_validity"
 output_dir.mkdir(exist_ok=True, parents=True)
 
 # Load Verdicts
-human_verdicts = load_pandas(annotated_dataset_dir / "human_verdicts.csv.gz").astype(
+human_verdicts = load_pandas(propositions_dir / "human_verdicts.csv.gz").astype(
     {
         "proposition_id": "string",
         "text": "string",
@@ -55,7 +55,7 @@ human_verdicts = load_pandas(annotated_dataset_dir / "human_verdicts.csv.gz").as
     }
 )
 # Load Proposition Validity
-proposition_validity = load_pandas(annotated_dataset_dir / "proposition_validity.csv.gz").astype(
+proposition_validity = load_pandas(propositions_dir / "proposition_validity.csv.gz").astype(
     {
         "proposition_id": "string",
         "text": "string",
@@ -271,5 +271,10 @@ p2.tick_params(
 )
 
 # Save Figure
-fig.savefig(output_dir / "1_proposition_validity.png", dpi=300, bbox_inches="tight")
+fig.savefig(
+    output_dir / "1_proposition_validity.png",
+    dpi=300,
+    bbox_inches="tight",
+    transparent=True,
+)
 # %%

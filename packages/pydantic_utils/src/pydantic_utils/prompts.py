@@ -1,12 +1,12 @@
 import inspect
 
 
-def default_system_prompt() -> None:
+def default_system_prompt() -> str:
     prompt = "You are a helpful assistant."
     return inspect.cleandoc(prompt)
 
 
-def prompt_revise_json_format(json: str) -> None:
+def prompt_revise_json_format(json: str) -> str:
     prompt = f"""
 ## Task Definition
 Correct the JSON format of the given JSON object.

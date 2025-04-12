@@ -1,228 +1,185 @@
+import itertools
 from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Self
 
 import pandas as pd
-from pandas.api.types import CategoricalDtype
-from pandas.io.formats.style import Styler
+from pandas import DataFrame
 from pydantic import BaseModel, ConfigDict, Field
 from tqdm.auto import tqdm
 from utils import load_pandas, save_pandas
 
-from irr_metrics import CATEGORIES, STRATA
-from irr_metrics.interrater import AgreementMetric, InterraterAgreement
+from irr_metrics.constants import VERDICT_LABELS
+from irr_metrics.interrater import InterraterAgreement, MetricResult
+from irr_metrics.type_utils import coerce_types
 
-retrieval_method_dtype = CategoricalDtype(["Dense", "Hybrid", "Rerank"], ordered=True)
-reference_context_dtype = CategoricalDtype(
-    ["Score", "Absolute Time", "Relative Time"], ordered=True
-)
-retrieval_scope_dtype = CategoricalDtype(["Yes", "No"], ordered=True)
+HUMAN_HYPERPARAM_COLS = ["author_type", "proposition_type"]
+AI_HYPERPARAM_COLS = [
+    "model",
+    "author_type",
+    "proposition_type",
+    "fact_type",
+    "top_n",
+    "retrieval_method",
+    "reference_format",
+    "reference_only_admission",
+]
 
 
 class MetricBunch(BaseModel):
     """Container for storing computed interrater agreement metrics."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    metric_name: str = Field(default="", description="Name of the metric.")
-    all_samples: Any = Field(default=None, description="Metrics computed over all verdicts.")
-    llm_claim: Any = Field(
-        default=None,
-        description="Metrics computed over author_type=LLM, proposition_type=claim verdicts.",
+    name: str = Field(default="", description="Name of the MetricBunch.")
+    strata_dfs: dict[Any, pd.DataFrame] = Field(
+        default={},
+        description="Dictionary of strata DataFrames. "
+        "Each stratum dataframe corresponds to a specific rater or hyperparameter set. "
+        "Each dataframe is used to compute metrics and corresponds to "
+        "one row in the metrics dataframe.",
     )
-    llm_sentence: Any = Field(
+    metrics: pd.DataFrame | None = Field(
         default=None,
-        description="Metrics computed over author_type=LLM, proposition_type=sentence verdicts.",
-    )
-    human_claim: Any = Field(
-        default=None,
-        description="Metrics computed over author_type=human, proposition_type=claim verdicts.",
-    )
-    human_sentence: Any = Field(
-        default=None,
-        description="Metrics computed over author_type=human, proposition_type=sentence verdict.",
+        description="Dataframe of computed metrics for each stratum. "
+        "Each row corresponds to a specific rater or hyperparameter set (stratum) "
+        "For which the metric is computed across all propositions for that "
+        "rater or hyperparameter set.",
     )
 
     ## Save/Load Methods
 
-    def save(self, filepath: Path | str, **kwargs: Any) -> None:
-        """Save the MetricBunch to files. `filepath` should be a directory.
-        The files will be saved as feather files:
-        * `all_samples` DataFrame is saved as `all_samples.feather`.
-        * `llm_claim` DataFrame is saved as `llm_claim.feather`.
-        * `llm_sentence` DataFrame is saved as `llm_sentence.feather`.
-        * `human_claim` DataFrame is saved as `human_claim.feather`.
-        * `human_sentence` DataFrame is saved as `human_sentence.feather`.
-        """
-        filepath = Path(filepath)
-        # Save Metric Table
-        if self.all_samples is not None:
-            self.all_samples = MetricBunch.make_categorical_columns_string(self.all_samples)
-            save_pandas(self.all_samples, filepath / "all_samples.feather", **kwargs)
-        if self.llm_claim is not None:
-            self.llm_claim = MetricBunch.make_categorical_columns_string(self.llm_claim)
-            save_pandas(self.llm_claim, filepath / "llm_claim.feather", **kwargs)
-        if self.llm_sentence is not None:
-            self.llm_sentence = MetricBunch.make_categorical_columns_string(self.llm_sentence)
-            save_pandas(self.llm_sentence, filepath / "llm_sentence.feather", **kwargs)
-        if self.human_claim is not None:
-            self.human_claim = MetricBunch.make_categorical_columns_string(self.human_claim)
-            save_pandas(self.human_claim, filepath / "human_claim.feather", **kwargs)
-        if self.human_sentence is not None:
-            self.human_sentence = MetricBunch.make_categorical_columns_string(self.human_sentence)
-            save_pandas(self.human_sentence, filepath / "human_sentence.feather", **kwargs)
-
-    @classmethod
-    def load(cls, filepath: Path | str, metric_name: str = "", **kwargs: Any) -> Self:
-        """Load the MetricBunch from files. `filepath` should be a directory containing files:
-        * `all_samples.feather` reconstitutes the `all_samples` DataFrame.
-        * `llm_claim.feather` reconstitutes the `llm_claim` DataFrame.
-        * `llm_sentence.feather` reconstitutes the `llm_sentence` DataFrame.
-        * `human_claim.feather` reconstitutes the `human_claim` DataFrame.
-        * `human_sentence.feather` reconstitutes the `human_sentence` DataFrame.
-        """
-        if not filepath.exists():
-            raise FileNotFoundError(f"Directory does not exist: {filepath}")
-        elif filepath.exists() and not any(filepath.iterdir()):
-            raise FileNotFoundError(f"Directory is empty: {filepath}")
-
-        try:
-            all_samples = load_pandas(filepath / "all_samples.feather", **kwargs)
-            all_samples = MetricBunch.make_categorical_columns_categorical(all_samples)
-        except FileNotFoundError:
-            all_samples = None
-        try:
-            llm_claim = load_pandas(filepath / "llm_claim.feather", **kwargs)
-            llm_claim = MetricBunch.make_categorical_columns_categorical(llm_claim)
-        except FileNotFoundError:
-            llm_claim = None
-        try:
-            llm_sentence = load_pandas(filepath / "llm_sentence.feather", **kwargs)
-            llm_sentence = MetricBunch.make_categorical_columns_categorical(llm_sentence)
-        except FileNotFoundError:
-            llm_sentence = None
-        try:
-            human_claim = load_pandas(filepath / "human_claim.feather", **kwargs)
-            human_claim = MetricBunch.make_categorical_columns_categorical(human_claim)
-        except FileNotFoundError:
-            human_claim = None
-        try:
-            human_sentence = load_pandas(filepath / "human_sentence.feather", **kwargs)
-            human_sentence = MetricBunch.make_categorical_columns_categorical(human_sentence)
-        except FileNotFoundError:
-            human_sentence = None
-
-        return MetricBunch(
-            metric_name=metric_name,
-            all_samples=all_samples,
-            llm_claim=llm_claim,
-            llm_sentence=llm_sentence,
-            human_claim=human_claim,
-            human_sentence=human_sentence,
-        )
-
     @staticmethod
-    def make_categorical_columns_string(df: pd.DataFrame) -> pd.DataFrame:
-        """Convert Categorical Columns to Strings."""
-        for col, dtype in zip(
-            ["retrieval_method", "reference_format", "reference_only_admission"],
-            ["string", "string", "string"],
-            strict=False,
-        ):
-            if col in df.columns:
-                df = df.astype({col: dtype})
-        return df
-
-    @staticmethod
-    def make_categorical_columns_categorical(df: pd.DataFrame) -> pd.DataFrame:
-        """Convert String Columns to Categorical."""
-        for col, dtype in zip(
-            ["retrieval_method", "reference_format", "reference_only_admission"],
-            [retrieval_method_dtype, reference_context_dtype, retrieval_scope_dtype],
-            strict=False,
-        ):
-            if col in df.columns:
-                df = df.astype({col: dtype})
-        return df
-
-    ## Crosstab Creation & Export Methods
-
-    def make_crosstab(
-        self,
-        stratum: str = "llm_claim",
-        index: Sequence[str] = ("retrieval_method", "top_n"),
-        columns: Sequence[str] = ("reference_format", "reference_only_admission"),
-        values: str = "display_str",
-        index_names: Sequence[str] = ("Retrieval Method", "Top N"),
-        column_names: Sequence[str] = ("Reference Context Format", "Only Current Admission"),
-    ) -> pd.DataFrame:
-        """Create a crosstab of the metric values."""
-        if stratum not in self.model_fields:
-            raise ValueError(f"Invalid stratum: {stratum}.")
-        # Pivot to get Cross Tabulation
-        df = getattr(self, stratum)
-        crosstab = df.pivot(
-            index=index,
-            columns=columns,
-            values=values,
-        ).rename_axis(index=index_names, columns=column_names)
-        # Reorder Columns
-        crosstab = crosstab.loc[
-            :,
-            [
-                ("Score", "Yes"),
-                ("Score", "No"),
-                ("Absolute Time", "Yes"),
-                ("Absolute Time", "No"),
-                ("Relative Time", "Yes"),
-                ("Relative Time", "No"),
-            ],
-        ]
-        return crosstab
-
-    def export_crosstab(
-        self,
-        stratum: str = "llm_claim",
-        style: bool = True,
-        filepath: Path | str | None = None,
-        **kwargs: Any,
-    ) -> pd.DataFrame | Styler:
-        """Create a crosstab of the metric values and optionally save to file.
-        `filepath` should be a directory to save the crosstab files.
-        Individual files are saved by `stratum` name within the directory.
-        """
-        filepath = Path(filepath) if filepath is not None else None
-        if stratum not in self.model_fields:
-            raise ValueError(f"Invalid stratum: {stratum}.")
-
-        # Make Cross Tabulation
-        crosstab = self.make_crosstab(stratum=stratum, values="display_str")
-
-        # Style Table as Heatmap
-        if style:
-            crosstab_value = self.make_crosstab(stratum=stratum, values="value")
-            crosstab_styler = crosstab.style.background_gradient(
-                cmap="Blues", axis=None, gmap=crosstab_value
-            )
-        # Save to File
-        if filepath is not None:
-            save_pandas(crosstab, filepath / f"{stratum}.feather", **kwargs)
-            save_pandas(crosstab, filepath / f"{stratum}.csv", index=True, **kwargs)
-            if style:
-                save_pandas(crosstab_styler, filepath / f"{stratum}.xlsx", index=True, **kwargs)
-        return crosstab_styler if style else crosstab
-
-    def export_crosstabs(
-        self,
-        filepath: Path | str,
-        style: bool = True,
-        strata: Sequence[str] = STRATA,
+    def save_metric(
+        stratum: str,
+        metric_df: pd.DataFrame,
+        save_dir: Path | str,
+        name: str,
+        metrics_dir: str = "metrics",
         **kwargs: Any,
     ) -> None:
-        """Export crosstabs for all strata to files."""
-        filepath = Path(filepath)
-        for stratum in strata:
-            self.export_crosstab(filepath=filepath, stratum=stratum, style=style, **kwargs)
+        """Save a single metric result DataFrame to a file."""
+        save_dir = Path(save_dir) / name / metrics_dir
+        save_pandas(df=metric_df, filepath=save_dir / f"{stratum}.feather", **kwargs)
+
+    @staticmethod
+    def load_metric(
+        stratum: str,
+        save_dir: Path | str,
+        name: str,
+        metrics_dir: str = "metrics",
+        **kwargs: Any,
+    ) -> pd.DataFrame:
+        """Load a single metric result DataFrame from a file."""
+        save_dir = Path(save_dir) / name / metrics_dir
+        return load_pandas(filepath=save_dir / f"{stratum}.feather", **kwargs)
+
+    @staticmethod
+    def save_stratum_data(
+        stratum: str,
+        stratum_df: pd.DataFrame,
+        save_dir: Path | str,
+        name: str,
+        strata_data_dir: str = "strata_data",
+        **kwargs: Any,
+    ) -> None:
+        """Save a single stratum DataFrame to a file."""
+        save_dir = Path(save_dir) / name / strata_data_dir
+        save_pandas(df=stratum_df, filepath=save_dir / f"{stratum}.feather", **kwargs)
+
+    @staticmethod
+    def load_stratum_data(
+        stratum: str,
+        save_dir: Path | str,
+        name: str,
+        strata_data_dir: str = "strata_data",
+        **kwargs: Any,
+    ) -> pd.DataFrame:
+        """Load a single stratum DataFrame from a file."""
+        save_dir = Path(save_dir) / name / strata_data_dir
+        return load_pandas(filepath=save_dir / f"{stratum}.feather", **kwargs)
+
+    def save(self, save_dir: Path | str, save_data: bool = True, **kwargs: Any) -> None:
+        """Save the MetricBunch to files. `save_dir` should be a directory.
+
+        Aggregate Metrics are saved to:
+        {save_dir} / {self.name} / metrics.feather
+
+        Individual Strata Metrics are saved to:
+        {save_dir} / {self.name} / metrics / {stratum}.feather
+
+        Individual Strata DataFrames are saved to:
+        {save_dir} / {self.name} / strata_data / {stratum}.feather
+        """
+        save_dir = Path(save_dir) / self.name
+        save_dir.mkdir(parents=True, exist_ok=True)
+        # Save Aggregated Metrics
+        save_pandas(df=self.metrics, filepath=save_dir / "metrics.feather", **kwargs)
+        # Save Individual Strata Metric
+        for stratum, df in self.metrics.iterrows():
+            MetricBunch.save_metric(
+                stratum=stratum, metric_df=df, save_dir=save_dir, name=self.name, **kwargs
+            )
+        # Save Individual Strata Metrics
+        if save_data:
+            for stratum, df in self.strata_dfs.items():
+                MetricBunch.save_stratum_data(
+                    stratum=stratum, stratum_df=df, save_dir=save_dir, name=self.name, **kwargs
+                )
+
+    @classmethod
+    def load(cls, save_dir: Path | str, name: str, load_data: bool = True, **kwargs: Any) -> Self:
+        """Load the MetricBunch from files. `save_dir` should be a directory.
+
+        Metrics are loaded from:
+        {save_dir} / {name} / metrics / {stratum}.feather
+
+        Strata DataFrames are loaded from:
+        {save_dir} / {name} / {strata_data / {stratum}.feather
+        """
+
+        save_dir = Path(save_dir)
+        if not save_dir.exists():
+            raise FileNotFoundError(f"Directory does not exist: {save_dir}")
+        elif save_dir.exists() and not any(save_dir.iterdir()):
+            raise FileNotFoundError(f"Directory is empty: {save_dir}")
+
+        # Load Individual Metrics
+        metric_dfs: dict[str, pd.DataFrame] = {}
+        try:
+            metric_data = save_dir / name / "metrics"
+            if metric_data.exists():
+                for f in metric_data.iterdir():
+                    if f.suffix == ".feather":
+                        stratum = f.stem
+                        metric_dfs[stratum] = MetricBunch.load_metric(
+                            stratum=stratum, save_dir=save_dir, name=name, **kwargs
+                        )
+            # Concatenate Metric DataFrames for Each Stratum
+            metrics = pd.concat(metric_dfs.values())
+        except Exception:
+            # If fail, load aggregated metrics
+            metrics = load_pandas(filepath=save_dir / name / "metrics.feather", **kwargs)
+        # Load Individual Strata Metrics
+        strata_dfs: dict[str, pd.DataFrame] = {}
+        if load_data:
+            try:
+                strata_data = save_dir / name / "strata_data"
+                if strata_data.exists():
+                    for f in strata_data.iterdir():
+                        if f.suffix == ".feather":
+                            stratum = f.stem
+                            strata_dfs[stratum] = MetricBunch.load_stratum_data(
+                                stratum=stratum, save_dir=save_dir, name=name, **kwargs
+                            )
+            except Exception:
+                pass
+
+        return MetricBunch(
+            name=name,
+            strata_dfs=strata_dfs,
+            metrics=metrics,
+        )
 
     ## Constructor Methods
 
@@ -230,95 +187,233 @@ class MetricBunch(BaseModel):
     def from_defaults(
         cls,
         rater_verdicts: pd.DataFrame,
-        ground_truth_labels: pd.DataFrame | None = None,
+        ground_truth: pd.DataFrame | None = None,
+        verdict_labels: Sequence[str] = VERDICT_LABELS,
         rater_type: str = "human",
-        rater_id_col: str = "rater_name",
-        strata: Sequence = STRATA,
+        rater_id_col: str = "stratum",
+        stratify_cols: str | list[str] | None = ["author_type", "proposition_type", "fact_type"],
         metric: str = "percent_agreement",
         bootstrap_iterations: int | None = None,
         workers: int = 1,
         num_parallel_raters: int = 16,
+        name: str | None = None,
+        cache_dir: Path | str | None = None,
+        force_recompute: bool = False,
+        show_progress: bool = True,
+        **kwargs,
     ) -> Self:
-        """Create a MetricBunch from a DataFrame of Rater Verdicts.
+        """Create a MetricBunch from a DataFrame of Rater Verdicts
+        (and optionally Ground Truth Labels). If ground truth is provided, each
+        rater's verdicts are compared against the ground truth labels.
+        If ground truth is not provided, each rater's verdicts are compared against
+        each other for inter-rater agreement analysis.
 
-        Argument `rater_verdicts` is required.
+        Args:
+            rater_verdicts (pd.DataFrame): DataFrame of raters' verdicts.
+            ground_truth (pd.DataFrame | None, optional): DataFrame of ground truth labels.
+                If None, this method computes interrater agreement across all raters specified
+                in `rater_verdicts`. If provided, this  method computes agreement metrics for
+                each rater versus the ground truth labels. Defaults to None.
+            verdict_labels (Sequence[str], optional): Labels for categorical verdicts.
+                VERDICT_LABELS set includes "Supported", "Not Supported","Not Addressed".
+                Other Options include BINARIZED_VERDICT_LABELS which includes
+                "Supported" and "Not Supported or Addressed". Defaults to VERDICT_LABELS.
+            rater_type (str, optional): "human" or "ai", modifies the associated metadata
+                with each computed metric, adding AI-specific hyperparameters for "ai".
+                Defaults to "human".
+            rater_id_col (str, optional): Name of column in dataframe to identify a unique rater.
+                Defaults to "stratum".
+            stratify_cols (str | list[str], optional): Columns to use for stratifying the analysis.
+                If multiple columns are provided, the cross-product of values from each column
+                are used to stratify the analysis. Column values should be categorical or binary.
+                Defaults to "author_type".
+            metric (str, optional): "percent_agreement" or "gwet". Defaults to "percent_agreement".
+            bootstrap_iterations (int | None, optional): Number of iterations for bootstrap
+                resampling for confidence interval estimation. If None, no bootstrap resampling
+                and confidence interval estimation is performed. Defaults to None.
+            workers (int, optional): Number of parallel workers to use in bootstrap calculation.
+                Defaults to 1.
+            num_parallel_raters (int, optional): Number of raters' metrics to calculate in parallel.
+                Defaults to 16.
+            name (str, optional): Name of the MetricBunch. This is a label for organization and
+                is also the name of the directory where the MetricBunch is saved. Defaults to None.
+            cache_dir (Path | str | None, optional): Directory to save/load the MetricBunch.
+                If None, no caching is performed. Defaults to None.
+            force_recompute (bool, optional): If True, forces recomputation of metrics even if
+                cached data exists. Defaults to False.
+            show_progress (bool, optional): If True, display progress bars for computation.
+                Defaults to True.
 
-        NOTE: The presence of `ground_truth_labels` argument changes the behavior
-        of the agreement metrics computed and stored in the resulting MetricBunch.
-        - If `ground_truth_labels` is provided, then agreement metrics for each rater
-        versus the ground truth labels is computed for all propositions.
-        - If `ground_truth_labels` is not provided, then we compute the inter-rater
-        agreement across all raters over all propositions.
+        Returns:
+            Self: MetricBunch object with results computed for the given `metric`. Metrics represent
+                the agreement between raters if `ground_truth` is None, or
+                between raters and ground truth labels if `ground_truth` is provided. If multiple
         """
-        results: dict[str, Any] = {}
-        # Loop through each stratum
-        for stratum in (pbar1 := tqdm(strata)):
-            pbar1.set_description(desc=f"Stratum: {stratum}")
-            if ground_truth_labels is None:
-                ## Compute Agreement Metrics Between All Raters (Interrater Agreement)
-                # Select Stratum
-                stratum_rater_verdicts = cls.select_strata(rater_verdicts, stratum)
+
+        if rater_verdicts is None or rater_verdicts.empty:
+            raise ValueError("rater_verdicts is None or empty.")
+
+        def _compute_agreement(
+            verdicts: pd.DataFrame,
+            ground_truth: pd.DataFrame | None = None,
+            stratum: str | None = None,
+        ) -> DataFrame:
+            if ground_truth is None:
                 # Compute Agreement Metric Between All Raters
-                results[stratum] = MetricBunch.compute_interrater_agreement(
-                    rater_verdicts=stratum_rater_verdicts,
+                return MetricBunch.compute_interrater_agreement(
+                    rater_verdicts=verdicts,
                     rater_type=rater_type,
-                    categories=CATEGORIES,
+                    rater_id_col=rater_id_col,
+                    categories=verdict_labels,
+                    rater_name=stratum,  # name for metric result index
                     metric=metric,
                     bootstrap_iterations=bootstrap_iterations,
                     workers=workers,
+                    show_progress=False,
                 )
             else:
-                ## Compute Agreement Metrics for Each Rater vs. Ground Truth Reference
-                # Select Stratum
-                stratum_rater_verdicts = cls.select_strata(rater_verdicts, stratum)
-                stratum_gt = cls.select_strata(ground_truth_labels, stratum)
                 # Compute Agreement Metric of Rater vs. Ground Truth for All Raters
-                results[stratum] = MetricBunch.compute_rater_verdict_agreement_vs_ground_truth(
-                    rater_verdicts=stratum_rater_verdicts,
-                    ground_truth=stratum_gt,
+                return MetricBunch.compute_rater_verdict_agreement_vs_ground_truth(
+                    rater_verdicts=verdicts,
+                    ground_truth=ground_truth,
                     rater_type=rater_type,
                     rater_id_col=rater_id_col,
-                    categories=CATEGORIES,
+                    categories=verdict_labels,
                     metric=metric,
                     bootstrap_iterations=bootstrap_iterations,
                     workers=workers,
                     num_parallel_raters=num_parallel_raters,
+                    show_progress=False,
                 )
-        results["metric_name"] = metric
-        return cls(**results)
 
-    @classmethod
-    def select_strata(cls, verdicts: pd.DataFrame, stratum: str) -> pd.DataFrame:
-        """Convenience method to return verdicts only for a specific stratum."""
-        match stratum:
-            case "all_samples":
-                return verdicts
-            case "llm_claim":
-                return verdicts.query("author_type == 'llm' & proposition_type == 'claim'")
-            case "llm_sentence":
-                return verdicts.query("author_type == 'llm' & proposition_type == 'sentence'")
-            case "human_claim":
-                return verdicts.query("author_type == 'human' & proposition_type == 'claim'")
-            case "human_sentence":
-                return verdicts.query("author_type == 'human' & proposition_type == 'sentence'")
-            case _:
-                raise ValueError(f"Invalid stratum: {stratum}")
+        # Define Strata and Corresponding Subset DataFrames
+        strata_dfs: dict[str, pd.DataFrame] = MetricBunch.stratify_by_columns(
+            df=rater_verdicts, columns=stratify_cols
+        )
+
+        # Compute or Load Agreement Metrics for Each Stratum
+        metrics: dict[str, pd.DataFrame] = {}
+        final_strata_dfs: dict[str, pd.DataFrame] = {}
+        for stratum, stratum_verdicts in (
+            pbar := tqdm(strata_dfs.items(), total=len(strata_dfs), disable=not show_progress)
+        ):
+            pbar.set_description(desc=f"Stratum: {stratum}")
+            # If Agreement Metric previously computed for stratum, do not recompute
+            if cache_dir is not None and not force_recompute:
+                try:
+                    # Attempt to Load Cached Metric
+                    metrics[stratum] = MetricBunch.load_metric(
+                        stratum=stratum,
+                        save_dir=cache_dir,
+                        name=name,
+                    )
+                    # Attempt to Load Cached Stratum Data
+                    final_strata_dfs[stratum] = MetricBunch.load_stratum_data(
+                        stratum=stratum,
+                        save_dir=cache_dir,
+                        name=name,
+                    )
+                    # If both succeed, skip recomputation and move to next stratum
+                    continue
+                except FileNotFoundError:
+                    # If file not found, need to compute Agreement Metric
+                    pass
+
+            # Compute Agreement Metric for Stratum
+            metric_df = _compute_agreement(
+                verdicts=stratum_verdicts, ground_truth=ground_truth, stratum=stratum
+            )
+            metrics[stratum] = metric_df
+            final_strata_dfs[stratum] = stratum_verdicts
+            # Save Results to Cache
+            if cache_dir is not None:
+                MetricBunch.save_metric(
+                    stratum=stratum,
+                    metric_df=metric_df,
+                    save_dir=cache_dir,
+                    name=name,
+                )
+                MetricBunch.save_stratum_data(
+                    stratum=stratum,
+                    stratum_df=stratum_verdicts,
+                    save_dir=cache_dir,
+                    name=name,
+                )
+
+        # Concatenate Metric DataFrames for Each Stratum
+        final_metrics = pd.concat(metrics.values())
+        save_pandas(df=final_metrics, filepath=cache_dir / name / "metrics.feather", **kwargs)
+        return cls(name=name, strata_dfs=final_strata_dfs, metrics=final_metrics)
+
+    @staticmethod
+    def stratify_by_columns(
+        df: pd.DataFrame, columns: str | list[str] | None = None, **kwargs: Any
+    ) -> dict[str, pd.DataFrame]:
+        """Stratify a DataFrame by one or more columns. Returns a dictionary with keys
+        of stratum tuples and values of the stratified DataFrame."""
+        # Stratified DataFrame Dictionary
+        strata_dfs: dict[str, pd.DataFrame] = {}
+        # If No Stratify Columns, Create single stratum with all data
+        if columns is None:
+            strata_dfs["all"] = df
+        else:
+            # Otherwise, stratify with one or more categorical/binary columns
+            if isinstance(columns, str):
+                columns = [columns]
+
+            # Create Mapping of all Columns and Categorical Values in Columns
+            strata_map = {col: df[col].drop_duplicates().to_list() for col in columns}
+
+            # Get Column Names and all Possible Value Combinations
+            strata_map_keys = tuple(strata_map.keys())
+            strata_map_value_tuples = list(itertools.product(*strata_map.values()))
+
+            # Subset Dataframe for Each Stratification Group
+            for stratum_tuple in strata_map_value_tuples:
+                # Build Query String for Stratification
+                query_components = []
+                for k, v in zip(strata_map_keys, stratum_tuple):
+                    match v:
+                        case str():
+                            query_components.append(f"{k} == '{v}'")
+                        case int() | float() | bool():
+                            query_components.append(f"{k} == {v}")
+                        case _:
+                            raise ValueError(
+                                f"Cannot build query for stratum with variable {v} with {type(v)}."
+                            )
+                query_str = " & ".join(query_components)
+                # Execute Query
+                subset_df = df.query(query_str)
+                # Coerce Types
+                subset_df = coerce_types(subset_df)
+                # Add to Stratified Dataframe Dictionary if not Empty
+                if not subset_df.empty:
+                    stratum_str = MetricBunch.dict_to_str(dict(zip(strata_map_keys, stratum_tuple)))
+                    subset_df = subset_df.assign(stratum=stratum_str)
+                    strata_dfs[stratum_str] = subset_df
+        return strata_dfs
+
+    @staticmethod
+    def dict_to_str(dict: dict) -> str:
+        return ",".join(f"{k}={v}" for k, v in dict.items())
 
     @staticmethod
     def categorical_agreement_metrics_for_verdicts(
         verdicts: pd.DataFrame,
         metric: str | tuple = "percent_agreement",
-        categories: Sequence[str] | None = CATEGORIES,
+        categories: Sequence[str] | None = VERDICT_LABELS,
+        rater_id_col: str = "rater_name",
         bootstrap_iterations: int | None = None,
         workers: int = 1,
         show_progress: bool = True,
-    ) -> dict[str, AgreementMetric]:
+    ) -> dict[str, MetricResult]:
         """Compute Categorical Agreement Metrics for a DataFrame of Verdicts."""
         ia = InterraterAgreement.from_defaults(
             data=verdicts,
             data_kind="categorical",
             categories=categories,
-            rater_name="rater_name",
+            rater_name=rater_id_col,
             item_name="proposition_id",
             values_name="verdict",
         )
@@ -334,35 +429,35 @@ class MetricBunch(BaseModel):
     def compute_interrater_agreement(
         rater_verdicts: pd.DataFrame,
         rater_type: str = "human",
-        categories: Sequence[str] = CATEGORIES,
+        categories: Sequence[str] = VERDICT_LABELS,
+        rater_id_col: str = "rater_name",
+        rater_name: str | None = None,
         metric: str = "percent_agreement",
         bootstrap_iterations: int | None = None,
         workers: int = 1,
         show_progress: bool = True,
     ) -> pd.DataFrame:
-        """Compute Interrater Agreement Metrics for a cohort of raters."""
+        """Compute Interrater Agreement Metrics for a cohort of raters.
+
+        The rater name needs to be explicitly assigned or else it will default
+        to "human_interrater".
+        """
         result = MetricBunch.categorical_agreement_metrics_for_verdicts(
             verdicts=rater_verdicts,
             metric=metric,
             categories=categories,
+            rater_id_col=rater_id_col,
             bootstrap_iterations=bootstrap_iterations,
             workers=workers,
             show_progress=show_progress,
         )
         agreement_metric = result.get(metric, None)
         # Create DataFrame of Agreement Metric (For consistent API)
+        rater_name = rater_name or f"{rater_type}_interrater"
         metric_df = (
-            pd.DataFrame([agreement_metric.model_dump()], index=[f"{rater_type}_interrater"])
+            pd.DataFrame([agreement_metric.model_dump()], index=[rater_name])
             .rename_axis(index="rater_name")
             .rename(columns={"name": "metric_name"})
-        ).astype(
-            {
-                "metric_name": str,
-                "value": float,
-                "ci_lower": float,
-                "ci_upper": float,
-                "p_value": float,
-            }
         )
         # Add Display String
         metric_df = metric_df.assign(
@@ -371,6 +466,8 @@ class MetricBunch(BaseModel):
                 axis="columns",
             ).astype("string")
         )
+        # Coerce Type
+        metric_df = coerce_types(metric_df)
         return metric_df
 
     @staticmethod
@@ -379,7 +476,7 @@ class MetricBunch(BaseModel):
         ground_truth: pd.DataFrame,
         rater_type: str = "human",
         rater_id_col: str = "rater_name",
-        categories: Sequence[str] = CATEGORIES,
+        categories: Sequence[str] = VERDICT_LABELS,
         metric: str = "percent_agreement",
         bootstrap_iterations: int | None = None,
         workers: int = 1,
@@ -387,14 +484,21 @@ class MetricBunch(BaseModel):
         show_progress: bool = True,
     ) -> pd.DataFrame:
         """Compute a Categorical Agreement Metrics for a cohort of raters vs. ground truth.
-        Multiple raters agreement vs. ground truth are computed in parallel."""
+        Multiple raters agreement vs. ground truth are computed in parallel.
+
+        The rater name from rater verdicts will become indices in the resulting metrics DataFrame.
+        """
         # Compute Agreement Metrics for Each Rater
-        metric_dict: dict[str, AgreementMetric | None] = {}
+        metric_dict: dict[str, MetricResult | None] = {}
         rater_names = []
         futures = []
         with ProcessPoolExecutor(max_workers=num_parallel_raters) as executor:
             for rater_name, one_rater_verdicts in (
-                pbar := tqdm(rater_verdicts.groupby(rater_id_col))
+                pbar := tqdm(
+                    rater_verdicts.groupby(rater_id_col),
+                    total=len(rater_verdicts[rater_id_col].unique()),
+                    disable=not show_progress,
+                )
             ):
                 pbar.set_description(desc=f"Human vs. {rater_name}")
                 # Get Overlap Proposition Nodes Between Rater & Ground Truth
@@ -418,12 +522,15 @@ class MetricBunch(BaseModel):
                 futures.append(future)
                 rater_names.append(rater_name)
 
-            for _ in (pbar := tqdm(as_completed(futures), total=len(futures))):
+            for _ in (
+                pbar := tqdm(as_completed(futures), total=len(futures), disable=not show_progress)
+            ):
                 pbar.set_description(desc="Completion")
 
             for rater_name, future in zip(rater_names, futures, strict=False):
                 agreement_metrics = future.result()
                 metric_dict[rater_name] = agreement_metrics.get(metric, None)
+
         # Create DataFrame of Agreement Metrics
         index = metric_dict.keys()
         data = [x.model_dump() for x in metric_dict.values() if x is not None]
@@ -431,36 +538,7 @@ class MetricBunch(BaseModel):
             pd.DataFrame(data, index=index)
             .rename_axis(index="rater_name")
             .rename(columns={"name": "metric_name"})
-        ).astype(
-            {
-                "metric_name": str,
-                "value": float,
-                "ci_lower": float,
-                "ci_upper": float,
-                "p_value": float,
-            }
         )
-        # If rater_type is AI, add hyperparameters to the DataFrame
-        if rater_type == "ai":
-            hyperparams_df = (
-                rater_verdicts.drop_duplicates(subset=[rater_id_col])
-                .set_index(rater_id_col)
-                .loc[
-                    :, ["retrieval_method", "top_n", "reference_format", "reference_only_admission"]
-                ]
-            )
-            hyperparams_df = hyperparams_df.assign(
-                retrieval_method=hyperparams_df.retrieval_method.apply(
-                    lambda x: x.replace("_", " ").title()
-                ).astype(retrieval_method_dtype),
-                reference_format=hyperparams_df.reference_format.apply(
-                    lambda x: x.replace("_", " ").title()
-                ).astype(reference_context_dtype),
-                reference_only_admission=hyperparams_df.reference_only_admission.apply(
-                    lambda x: "Yes" if x else "No"
-                ).astype(retrieval_scope_dtype),
-            )
-            metric_df = metric_df.join(hyperparams_df)
         # Add Display String
         metric_df = metric_df.assign(
             display_str=metric_df.apply(
@@ -468,6 +546,29 @@ class MetricBunch(BaseModel):
                 axis="columns",
             ).astype("string")
         )
+        # Add hyperparameters to the DataFrame
+        if rater_type == "ai":
+            intersection_cols = list(set(AI_HYPERPARAM_COLS) & set(rater_verdicts.columns))
+            hyperparams_df = (
+                rater_verdicts.drop_duplicates(subset=[rater_id_col])
+                .set_index(rater_id_col)
+                .loc[:, intersection_cols]
+            )
+        elif rater_type == "human":
+            intersection_cols = list(set(HUMAN_HYPERPARAM_COLS) & set(rater_verdicts.columns))
+            hyperparams_df = (
+                rater_verdicts.drop_duplicates(subset=[rater_id_col])
+                .set_index(rater_id_col)
+                .loc[:, intersection_cols]
+            )
+        else:
+            raise ValueError(f"Invalid rater_type: {rater_type}.")
+
+        # Format and Join Hyperparameters
+        metric_df = metric_df.join(hyperparams_df)
+
+        # Coerce Types
+        metric_df = coerce_types(metric_df)
         return metric_df
 
     @staticmethod

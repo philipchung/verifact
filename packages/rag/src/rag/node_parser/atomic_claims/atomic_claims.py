@@ -10,13 +10,12 @@ from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 from llama_index.core.async_utils import run_jobs
-from llama_index.core.bridge.pydantic import Field
 from llama_index.core.callbacks.base import CallbackManager
 from llama_index.core.node_parser import NodeParser
 from llama_index.core.schema import MetadataMode, NodeRelationship
 from llama_index.core.utils import get_tqdm_iterable
 from llama_index.llms.openai import OpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_utils import LLMBaseModel, SimpleClaimList
 from utils import convert_nan_nat_to_none, convert_timestamps_to_iso, get_utc_time
 
@@ -30,7 +29,7 @@ from rag.node_parser.atomic_claims.prompts import (
 from rag.node_parser.node_utils import (
     count_sentences,
     count_tokens,
-    node_id_from_string,
+    mimic_node_id_fn,
 )
 from rag.schema import BaseNode, Document, TextNode
 
@@ -102,7 +101,7 @@ class AtomicClaimNodeParser(NodeParser, LLMBaseModel):
         id_func: Callable[[int, Document], str] | None = None,
     ) -> "AtomicClaimNodeParser":
         callback_manager = callback_manager or CallbackManager([])
-        id_func = id_func or node_id_from_string
+        id_func = id_func or mimic_node_id_fn
         return cls(
             llm=llm,
             system_prompt_template=system_prompt_template,
@@ -129,7 +128,7 @@ class AtomicClaimNodeParser(NodeParser, LLMBaseModel):
     def _determine_contains_atomic_claim(self, text: str) -> bool:
         """Determines if text contains atomic claims using LLM."""
         obj = self._generate(
-            text, prompt_fn=self.detect_claims_template, pydantic_model=ContainsAtomicClaim
+            text, prompt=self.detect_claims_template, response_format=ContainsAtomicClaim
         )
         contains_atomic_claim: bool = obj.contains_atomic_claim
         return contains_atomic_claim
@@ -137,7 +136,7 @@ class AtomicClaimNodeParser(NodeParser, LLMBaseModel):
     def _extract_claims_list(self, text: str) -> list[str]:
         """Generates atomic claims from text using LLM."""
         obj = self._generate(
-            text, prompt_fn=self.extract_claims_template, pydantic_model=SimpleClaimList
+            text, prompt=self.extract_claims_template, response_format=SimpleClaimList
         )
         if obj is None or obj.items is None:
             claims: list[str] = []
@@ -148,7 +147,7 @@ class AtomicClaimNodeParser(NodeParser, LLMBaseModel):
     async def _a_determine_contains_atomic_claim(self, text: str) -> Awaitable[bool]:
         """Determines if text contains atomic claims using LLM."""
         obj = await self._a_generate(
-            text, prompt_fn=self.detect_claims_template, pydantic_model=ContainsAtomicClaim
+            text, prompt=self.detect_claims_template, response_format=ContainsAtomicClaim
         )
         contains_atomic_claim: bool = obj.contains_atomic_claim
         return contains_atomic_claim
@@ -156,7 +155,7 @@ class AtomicClaimNodeParser(NodeParser, LLMBaseModel):
     async def _a_extract_claims_list(self, text: str) -> Awaitable[list[str]]:
         """Generates atomic claims from text using LLM."""
         obj = await self._a_generate(
-            text, prompt_fn=self.extract_claims_template, pydantic_model=SimpleClaimList
+            text, prompt=self.extract_claims_template, response_format=SimpleClaimList
         )
         if obj is None or obj.items is None:
             claims: list[str] = []
@@ -165,7 +164,7 @@ class AtomicClaimNodeParser(NodeParser, LLMBaseModel):
         return claims
 
     def _build_nodes_from_claims_list(
-        self, claims: list[str], original_node: BaseNode
+        self, claims: list[str], original_node: BaseNode, **kwargs
     ) -> list[BaseNode]:
         """Builds nodes from claims list."""
         # Create New Node for Each Claim
@@ -173,8 +172,15 @@ class AtomicClaimNodeParser(NodeParser, LLMBaseModel):
         for i, claim in enumerate(claims):
             node_text = claim
             parent_text = original_node.get_content(MetadataMode.NONE)
-            # Create Unique ID for Claim Node based on Source Node, Claim Index, Claim Text
-            node_id = self.id_func(f"{original_node.node_id}-{parent_text}-{i}-{node_text}")
+            # Create Unique ID for New Node - This will be unique for each patient note,
+            # author_type, proposition_type/node_kind, and extracted text
+            node_id = self.id_func(
+                text=node_text,
+                subject_id=kwargs.get("subject_id", ""),
+                row_id=kwargs.get("row_id", ""),
+                author_type=kwargs.get("author_type", ""),
+                node_kind=getattr(self, "node_kind", ""),
+            )
             metadata = {
                 # Monotonically increasing index (relative position in original node)
                 "node_monotonic_idx": i,
@@ -230,6 +236,8 @@ class AtomicClaimNodeParser(NodeParser, LLMBaseModel):
     ) -> list[TextNode]:
         """Parses input nodes into atomic claims and creates a new node for each claim."""
         queue_with_progress = get_tqdm_iterable(nodes, show_progress, "Parsing Node to Claims")
+        # Drop Empty Nodes
+        nodes = [node for node in nodes if node.get_content(MetadataMode.NONE)]
 
         output_nodes = []
         for node in queue_with_progress:
@@ -240,7 +248,7 @@ class AtomicClaimNodeParser(NodeParser, LLMBaseModel):
             if contains_atomic_claim:
                 claims: list[str] = self._extract_claims_list(node_text)
                 # Build a New Node for each Claim
-                claim_nodes = self._build_nodes_from_claims_list(claims, node)
+                claim_nodes = self._build_nodes_from_claims_list(claims, node, **kwargs)
                 output_nodes.extend(claim_nodes)
         return output_nodes
 
@@ -258,11 +266,12 @@ class AtomicClaimNodeParser(NodeParser, LLMBaseModel):
             if contains_atomic_claim:
                 claims: list[str] = await self._a_extract_claims_list(node_text)
                 # Build a New Node for each Claim
-                claim_nodes = self._build_nodes_from_claims_list(claims, node)
+                claim_nodes = self._build_nodes_from_claims_list(claims, node, **kwargs)
             else:
                 claim_nodes = []
             return claim_nodes
 
+        nodes = [node for node in nodes if node.get_content(MetadataMode.NONE)]
         jobs = [job(node) for node in nodes]
         results = await run_jobs(
             jobs, show_progress=show_progress, workers=workers, desc="Parsing Node to Claims"

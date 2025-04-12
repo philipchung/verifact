@@ -61,9 +61,9 @@ services:
   ### 2. vLLM Service Containers - load balanced in vllm-service (GPU device and Ports are different)
 
   # Docker Containers using Two GPUs in Tensor Parallelism Configuration
-  llmtp2:
-    image: vllm/vllm-openai:v0.6.6.post1
-    container_name: llmtp2
+  llm-tp2:
+    image: vllm/vllm-openai:v0.7.3
+    container_name: llm-tp2
     profiles: [ all, llm ]
     restart: unless-stopped
     shm_size: '4gb'
@@ -85,12 +85,41 @@ services:
               device_ids: [ '${TP2_GPU0}', '${TP2_GPU1}' ] # <--- GPU Devices available to container
     labels:
       - traefik.enable=true
-      - traefik.http.routers.llm_tp2.rule=Host(`llm.${DOMAIN}`)
-      - traefik.http.routers.llm_tp2.service=llm-service
+      - traefik.http.routers.llm-tp2.rule=Host(`llm.${DOMAIN}`)
+      - traefik.http.routers.llm-tp2.service=llm-service
       - traefik.http.services.llm-service.loadbalancer.server.port=${LLM_CONTAINER_PORT}
 
+  # Auxillary LLM Server for Structured Outputs
+  llm-aux:
+    image: vllm/vllm-openai:v0.7.3
+    container_name: llm-aux
+    restart: unless-stopped
+    shm_size: '4gb'
+    # vLLM server config
+    command: >-
+      --model=${AUX_LLM_MODEL_NAME}   --dtype=${AUX_DTYPE}   --max-model-len=${AUX_LLM_MAX_MODEL_LEN}   --gpu-memory-utilization=${AUX_LLM_GPU_MEMORY_UTILIZATION}   --tensor-parallel-size=1   --pipeline-parallel-size=1   --block-size=${AUX_BLOCK_SIZE}   --swap-space=${AUX_SWAP_SPACE}   --guided-decoding-backend=${AUX_GUIDED_DECODING_BACKEND}  ${AUX_EXTRA_ARGS}
+    ports:
+      - ${AUX_LLM_HOST_PORT}:${LLM_CONTAINER_PORT}
+    expose:
+      - ${LLM_CONTAINER_PORT}
+    volumes:
+      - ${HF_HOME}:/root/.cache/huggingface:rw
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [ gpu ]
+              device_ids: [ '${AUX_LLM_GPU}' ] # <--- GPU Devices available to container 
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.aux-llm.rule=Host(`aux-llm.${DOMAIN}`)
+      - traefik.http.routers.aux-llm.service=aux-llm-service
+      - traefik.http.services.aux-llm-service.loadbalancer.server.port=${LLM_CONTAINER_PORT}
+
+  # vLLM Server on Individual GPUs
   llm0:
-    image: vllm/vllm-openai:v0.6.6.post1
+    image: vllm/vllm-openai:v0.7.3
     container_name: llm0
     restart: unless-stopped
     shm_size: '4gb'
@@ -117,7 +146,7 @@ services:
       - traefik.http.services.llm-service.loadbalancer.server.port=${LLM_CONTAINER_PORT}
 
   llm1:
-    image: vllm/vllm-openai:v0.6.6.post1
+    image: vllm/vllm-openai:v0.7.3
     container_name: llm1
     restart: unless-stopped
     shm_size: '4gb'
@@ -144,7 +173,7 @@ services:
       - traefik.http.services.llm-service.loadbalancer.server.port=${LLM_CONTAINER_PORT}
 
   llm2:
-    image: vllm/vllm-openai:v0.6.6.post1
+    image: vllm/vllm-openai:v0.7.3
     container_name: llm2
     restart: unless-stopped
     shm_size: '4gb'
@@ -171,7 +200,7 @@ services:
       - traefik.http.services.llm-service.loadbalancer.server.port=${LLM_CONTAINER_PORT}
 
   llm3:
-    image: vllm/vllm-openai:v0.6.6.post1
+    image: vllm/vllm-openai:v0.7.3
     container_name: llm3
     restart: unless-stopped
     shm_size: '4gb'
@@ -470,7 +499,7 @@ services:
 
   ### 8. Qdrant Vector Database
   qdrant:
-    image: qdrant/qdrant:v1.10.0
+    image: qdrant/qdrant:v1.12.5
     container_name: "qdrant"
     restart: always
     ports:

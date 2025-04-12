@@ -13,17 +13,17 @@ from pydantic import BaseModel, ConfigDict, Field
 from tqdm.auto import tqdm
 
 
-class AgreementMetric(BaseModel):
-    """Container for agreement metric values (with and without confidence intervals)."""
+class MetricResult(BaseModel):
+    """Container for metric values with confidence intervals, p-values, and bootstrap results."""
 
-    name: str = Field(..., description="Name of the agreement coefficient.")
-    value: float = Field(..., description="Value of the agreement coefficient.")
+    name: str = Field(..., description="Name of the metric.")
+    value: float = Field(..., description="Value of the metric.")
     # Confidence Interval
     confidence_level: float | None = Field(default=None, description="Confidence interval level.")
     ci_lower: float | None = Field(default=None, description="Lower bound of confidence interval.")
     ci_upper: float | None = Field(default=None, description="Upper bound of confidence interval.")
     # P-value
-    p_value: float | None = Field(default=None, description="P-value of the agreement coefficient.")
+    p_value: float | None = Field(default=None, description="P-value of the metric.")
     # Bootstrap Iterations
     bootstrap_iterations: int | None = Field(
         default=None, description="Number of bootstrap iterations."
@@ -80,7 +80,7 @@ class PairwiseFunction(Protocol):
 class MetricFunction(Protocol):
     __name__: str
 
-    def __call__(self, *, ratings: pd.DataFrame, **kwargs: Any) -> AgreementMetric: ...
+    def __call__(self, *, ratings: pd.DataFrame, **kwargs: Any) -> MetricResult: ...
 
 
 class InterraterAgreement(BaseModel):
@@ -212,7 +212,7 @@ class InterraterAgreement(BaseModel):
                 return subset_ratings.shape[1]
 
     @staticmethod
-    def pair_percent_agreement(ratings: pd.DataFrame, r1: str, r2: str) -> AgreementMetric:
+    def pair_percent_agreement(ratings: pd.DataFrame, r1: str, r2: str) -> MetricResult:
         if r1 == r2:
             return pd.NA
         else:
@@ -223,7 +223,7 @@ class InterraterAgreement(BaseModel):
                 return InterraterAgreement._compute_percent_agreement(ratings=subset_ratings)
 
     @staticmethod
-    def pair_gwet(ratings: pd.DataFrame, r1: str, r2: str) -> AgreementMetric:
+    def pair_gwet(ratings: pd.DataFrame, r1: str, r2: str) -> MetricResult:
         if r1 == r2:
             return pd.NA
         else:
@@ -331,7 +331,7 @@ class InterraterAgreement(BaseModel):
         workers: int = 1,
         show_progress: bool = True,
         **kwargs: Any,
-    ) -> AgreementMetric:
+    ) -> MetricResult:
         """Generic dispatch to bootstrap vs. no bootstrap for `metric_fn`.
         Progress bar is only available when computing via bootstrap."""
         ratings = self.ratings if ratings is None else ratings
@@ -356,7 +356,7 @@ class InterraterAgreement(BaseModel):
         bootstrap_fraction: float,
         random_state: int,
         **kwargs: Any,
-    ) -> AgreementMetric:
+    ) -> MetricResult:
         # Bootstrap Resample Rating Items
         boot_ratings = ratings.sample(
             frac=bootstrap_fraction, replace=True, random_state=random_state, axis=1
@@ -378,7 +378,7 @@ class InterraterAgreement(BaseModel):
         workers: int = 1,
         show_progress: bool = True,
         **kwargs: Any,
-    ) -> AgreementMetric:
+    ) -> MetricResult:
         """Bootstrap the `metric_fn` to estimate confidence intervals and p-values.
         All args & kwargs are passed through to the `metric_fn`.
 
@@ -452,7 +452,7 @@ class InterraterAgreement(BaseModel):
         z_score = metric_value / standard_error  # Assuming the null hypothesis value is zero
         p_value = 2 * (1 - stats.norm.cdf(abs(z_score)))  # Two-tailed test
 
-        return AgreementMetric(
+        return MetricResult(
             name=metric_name,
             value=metric_value,
             ci_lower=ci_lower,
@@ -468,7 +468,7 @@ class InterraterAgreement(BaseModel):
     @staticmethod
     def _compute_percent_agreement(
         ratings: pd.DataFrame,
-    ) -> AgreementMetric:
+    ) -> MetricResult:
         """Compute percent agreement for a ratings table.
         This considers all pairwise comparisons of raters and is the number of agreeing
         pair of raters divided by the total number of pairwise comparisons for each item.
@@ -498,7 +498,7 @@ class InterraterAgreement(BaseModel):
         # Compute percent agreement for each item, then take average
         item_percent_agreement_df = pairwise_agree_df.apply(item_percent_agreement, axis="columns")
         overall_percent_agreement = item_percent_agreement_df.mean()
-        return AgreementMetric(
+        return MetricResult(
             name="percent_agreement",
             value=overall_percent_agreement,
         )
@@ -512,7 +512,7 @@ class InterraterAgreement(BaseModel):
         workers: int = 1,
         show_progress: bool = True,
         **kwargs: Any,
-    ) -> AgreementMetric:
+    ) -> MetricResult:
         """Compute percent agreement for a ratings table."""
         return self.compute_metric_fn(
             metric_fn=self._compute_percent_agreement,
@@ -529,11 +529,11 @@ class InterraterAgreement(BaseModel):
     def _compute_cac_fleiss(
         ratings: pd.DataFrame,
         **kwargs: Any,
-    ) -> AgreementMetric:
+    ) -> MetricResult:
         """Compute Fleiss' Kappa for a ratings table."""
         cac = CAC(ratings=ratings.T, **kwargs)
         fleiss = cac.fleiss()
-        return AgreementMetric(
+        return MetricResult(
             name="fleiss",
             value=fleiss["est"]["coefficient_value"],
             confidence_level=0.95,
@@ -551,7 +551,7 @@ class InterraterAgreement(BaseModel):
         workers: int = 1,
         show_progress: bool = True,
         **kwargs: Any,
-    ) -> AgreementMetric:
+    ) -> MetricResult:
         """Compute Fleiss' Kappa for a ratings table."""
         return self.compute_metric_fn(
             metric_fn=self._compute_cac_fleiss,
@@ -568,12 +568,12 @@ class InterraterAgreement(BaseModel):
     def _compute_cac_krippendorff(
         ratings: pd.DataFrame,
         **kwargs: Any,
-    ) -> AgreementMetric:
+    ) -> MetricResult:
         """Compute Krippendorff's Alpha for a ratings table.
         This irrCAC implementation supports only categorical-valued scores."""
         cac = CAC(ratings=ratings.T, **kwargs)
         krippendorff = cac.krippendorff()
-        return AgreementMetric(
+        return MetricResult(
             name="krippendorff",
             value=krippendorff["est"]["coefficient_value"],
             confidence_level=0.95,
@@ -591,7 +591,7 @@ class InterraterAgreement(BaseModel):
         workers: int = 1,
         show_progress: bool = True,
         **kwargs: Any,
-    ) -> AgreementMetric:
+    ) -> MetricResult:
         """Compute Krippendorff's Alpha for a ratings table.
         This irrCAC implementation supports only categorical-valued scores."""
         return self.compute_metric_fn(
@@ -609,11 +609,11 @@ class InterraterAgreement(BaseModel):
     def _compute_cac_gwet(
         ratings: pd.DataFrame,
         **kwargs: Any,
-    ) -> AgreementMetric:
+    ) -> MetricResult:
         """Compute Gwet's AC1 for a ratings table."""
         cac = CAC(ratings=ratings.T, **kwargs)
         gwet = cac.gwet()
-        return AgreementMetric(
+        return MetricResult(
             name="gwet_AC1",
             value=gwet["est"]["coefficient_value"],
             confidence_level=0.95,
@@ -631,7 +631,7 @@ class InterraterAgreement(BaseModel):
         workers: int = 1,
         show_progress: bool = True,
         **kwargs: Any,
-    ) -> AgreementMetric:
+    ) -> MetricResult:
         """Compute Gwet's AC1 for a ratings table."""
         return self.compute_metric_fn(
             metric_fn=self._compute_cac_gwet,
@@ -648,11 +648,11 @@ class InterraterAgreement(BaseModel):
     def _compute_cac_conger(
         ratings: pd.DataFrame,
         **kwargs: Any,
-    ) -> AgreementMetric:
+    ) -> MetricResult:
         """Compute Conger's Kappa for a ratings table."""
         cac = CAC(ratings=ratings.T, **kwargs)
         conger = cac.conger()
-        return AgreementMetric(
+        return MetricResult(
             name="conger",
             value=conger["est"]["coefficient_value"],
             confidence_level=0.95,
@@ -670,7 +670,7 @@ class InterraterAgreement(BaseModel):
         workers: int = 1,
         show_progress: bool = True,
         **kwargs: Any,
-    ) -> AgreementMetric:
+    ) -> MetricResult:
         """Compute Conger's Kappa for a ratings table."""
         return self.compute_metric_fn(
             metric_fn=self._compute_cac_conger,
@@ -687,11 +687,11 @@ class InterraterAgreement(BaseModel):
     def _compute_cac_brennar_pediger(
         ratings: pd.DataFrame,
         **kwargs: Any,
-    ) -> AgreementMetric:
+    ) -> MetricResult:
         """Compute Brennar-Prediger Agreement Coefficient for a ratings table."""
         cac = CAC(ratings=ratings.T, **kwargs)
         bp = cac.bp()
-        return AgreementMetric(
+        return MetricResult(
             name="brennar_pediger",
             value=bp["est"]["coefficient_value"],
             confidence_level=0.95,
@@ -709,7 +709,7 @@ class InterraterAgreement(BaseModel):
         workers: int = 1,
         show_progress: bool = True,
         **kwargs: Any,
-    ) -> AgreementMetric:
+    ) -> MetricResult:
         """Compute Brennar-Prediger Agreement Coefficient for a ratings table."""
         return self.compute_metric_fn(
             metric_fn=self._compute_cac_brennar_pediger,
@@ -732,12 +732,12 @@ class InterraterAgreement(BaseModel):
         metrics: Sequence[str] = ("percent_agreement", "gwet"),
         show_progress: bool = True,
         **kwargs: Any,
-    ) -> dict[str, AgreementMetric]:
+    ) -> dict[str, MetricResult]:
         """Convenience method to compute all agreement metrics for categorical labels."""
         if isinstance(metrics, str):
             metrics = [metrics]
 
-        agreement_metrics: dict[str, AgreementMetric] = {}
+        agreement_metrics: dict[str, MetricResult] = {}
         if "percent_agreement" in metrics:
             agreement_metrics["percent_agreement"] = self.percent_agreement(
                 ratings=ratings,
@@ -807,7 +807,7 @@ class InterraterAgreement(BaseModel):
         ratings: pd.DataFrame | None = None,
         y_true: Sequence | None = None,
         y_pred: Sequence | None = None,
-    ) -> AgreementMetric:
+    ) -> MetricResult:
         """Concordance correlation coefficient.
         Either provide `ratings` argument with 2 raters as rows and items as columns,
         or compare arrays from 2 raters using `y_true` and `y_pred` arguments.
@@ -848,7 +848,7 @@ class InterraterAgreement(BaseModel):
         numerator = 2 * cor * sd_true * sd_pred
         denominator = var_true + var_pred + (mean_true - mean_pred) ** 2
         ccc = numerator / denominator
-        return AgreementMetric(
+        return MetricResult(
             name="CCC",
             value=ccc,
         )
@@ -862,7 +862,7 @@ class InterraterAgreement(BaseModel):
         workers: int = 1,
         show_progress: bool = True,
         **kwargs: Any,
-    ) -> AgreementMetric:
+    ) -> MetricResult:
         """Compute Concordance Correlation Coefficient for a ratings table.
         This implementation supports both continuous-valued scores and can only
         compare 2 raters (`ratings` must be a 2xN dataframe).
@@ -889,7 +889,7 @@ class InterraterAgreement(BaseModel):
         rater_name: str = "rater_name",
         values_name: str = "score",
         icc_type: str = "ICC3",
-    ) -> AgreementMetric:
+    ) -> MetricResult:
         """Computes Intraclass Correlation Coefficient (ICC) for a ratings table.
         Valid ICC Types are:
         - "ICC1": Measure reliability of individual scores across raters.
@@ -930,7 +930,7 @@ class InterraterAgreement(BaseModel):
             nan_policy="omit",
         )
         icc = icc_df.loc[icc_df.Type == icc_type].squeeze()
-        return AgreementMetric(
+        return MetricResult(
             name="ICC",
             value=icc["ICC"],
             confidence_level=0.95,
@@ -948,7 +948,7 @@ class InterraterAgreement(BaseModel):
         workers: int = 1,
         show_progress: bool = True,
         **kwargs,
-    ) -> AgreementMetric:
+    ) -> MetricResult:
         """Compute Intraclass Correlation Coefficient (ICC) for a ratings table."""
         ratings = self.ratings if ratings is None else ratings
         if bootstrap_iterations is None:
@@ -970,7 +970,7 @@ class InterraterAgreement(BaseModel):
     def _compute_krippendorff_alpha(
         ratings: pd.DataFrame,
         **kwargs: Any,
-    ) -> AgreementMetric:
+    ) -> MetricResult:
         """Compute Krippendorff's Alpha for a ratings table."""
         label2id = kwargs.pop("label2id", None)
         # Ratings are categorical. Convert categorical labels using label mapping
@@ -991,7 +991,7 @@ class InterraterAgreement(BaseModel):
             kwargs["reliability_data"] = data
             kwargs["level_of_measurement"] = kwargs.get("level_of_measurement", "interval")
         alpha = krippendorff.alpha(**kwargs)
-        return AgreementMetric(
+        return MetricResult(
             name="krippendorff_alpha",
             value=alpha,
         )
@@ -1005,7 +1005,7 @@ class InterraterAgreement(BaseModel):
         workers: int = 1,
         show_progress: bool = True,
         **kwargs: Any,
-    ) -> AgreementMetric:
+    ) -> MetricResult:
         """Compute Krippendorff's Alpha for a ratings table.
         This implementation supports both categorical and continuous-valued scores.
         """
@@ -1036,12 +1036,12 @@ class InterraterAgreement(BaseModel):
         metrics: Sequence[str] = ("icc", "ccc", "krippendorff"),
         show_progress: bool = True,
         **kwargs: Any,
-    ) -> dict[str, AgreementMetric]:
+    ) -> dict[str, MetricResult]:
         """Convenience method to compute all agreement metrics for continuous labels."""
         if isinstance(metrics, str):
             metrics = [metrics]
 
-        agreement_metrics: dict[str, AgreementMetric] = {}
+        agreement_metrics: dict[str, MetricResult] = {}
         if "icc" in metrics:
             agreement_metrics["icc"] = self.intraclass_correlation_coefficient(
                 ratings=ratings,

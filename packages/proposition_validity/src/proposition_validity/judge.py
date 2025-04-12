@@ -3,9 +3,8 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Self
 
-from llama_index.core.bridge.pydantic import Field
 from llama_index.llms.openai import OpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_utils import LLMBaseModel
 from rag.llms.openai_like import OpenAILike
 from tqdm.asyncio import tqdm
@@ -215,28 +214,28 @@ class ClaimValidityJudge(LLMBaseModel):
 
     def _determine_contains_atomic_claim(self, text: str) -> bool:
         obj = self._generate(
-            text, prompt_fn=self.detect_claims_template, pydantic_model=ContainsAtomicClaim
+            text, prompt=self.detect_claims_template, response_format=ContainsAtomicClaim
         )
         contains_atomic_claim: bool = obj.contains_atomic_claim
         return contains_atomic_claim
 
     async def _a_determine_contains_atomic_claim(self, text: str) -> Awaitable[bool]:
         obj = await self._a_generate(
-            text, prompt_fn=self.detect_claims_template, pydantic_model=ContainsAtomicClaim
+            text, prompt=self.detect_claims_template, response_format=ContainsAtomicClaim
         )
         contains_atomic_claim: bool = obj.contains_atomic_claim
         return contains_atomic_claim
 
     def _determine_contains_proposition(self, text: str) -> bool:
         obj = self._generate(
-            text, prompt_fn=self.detect_proposition_template, pydantic_model=ContainsProposition
+            text, prompt=self.detect_proposition_template, response_format=ContainsProposition
         )
         contains_proposition: bool = obj.contains_proposition
         return contains_proposition
 
     async def _a_determine_contains_proposition(self, text: str) -> Awaitable[bool]:
         obj = await self._a_generate(
-            text, prompt_fn=self.detect_proposition_template, pydantic_model=ContainsProposition
+            text, prompt=self.detect_proposition_template, response_format=ContainsProposition
         )
         contains_proposition: bool = obj.contains_proposition
         return contains_proposition
@@ -244,8 +243,8 @@ class ClaimValidityJudge(LLMBaseModel):
     def _determine_contains_imperative_statement(self, text: str) -> bool:
         obj = self._generate(
             text,
-            prompt_fn=self.detect_imperative_statement_template,
-            pydantic_model=ContainsImperativeStatement,
+            prompt=self.detect_imperative_statement_template,
+            response_format=ContainsImperativeStatement,
         )
         contains_imperative_statement: bool = obj.contains_imperative_statement
         return contains_imperative_statement
@@ -253,8 +252,8 @@ class ClaimValidityJudge(LLMBaseModel):
     async def _a_determine_contains_imperative_statement(self, text: str) -> Awaitable[bool]:
         obj = await self._a_generate(
             text,
-            prompt_fn=self.detect_imperative_statement_template,
-            pydantic_model=ContainsImperativeStatement,
+            prompt=self.detect_imperative_statement_template,
+            response_format=ContainsImperativeStatement,
         )
         contains_imperative_statement: bool = obj.contains_imperative_statement
         return contains_imperative_statement
@@ -262,8 +261,8 @@ class ClaimValidityJudge(LLMBaseModel):
     def _determine_contains_interrogative_statement(self, text: str) -> bool:
         obj = self._generate(
             text,
-            prompt_fn=self.detect_interrogative_statement_template,
-            pydantic_model=ContainsInterrogativeStatement,
+            prompt=self.detect_interrogative_statement_template,
+            response_format=ContainsInterrogativeStatement,
         )
         contains_interrogative_statement: bool = obj.contains_interrogative_statement
         return contains_interrogative_statement
@@ -271,8 +270,8 @@ class ClaimValidityJudge(LLMBaseModel):
     async def _a_determine_contains_interrogative_statement(self, text: str) -> Awaitable[bool]:
         obj = await self._a_generate(
             text,
-            prompt_fn=self.detect_interrogative_statement_template,
-            pydantic_model=ContainsInterrogativeStatement,
+            prompt=self.detect_interrogative_statement_template,
+            response_format=ContainsInterrogativeStatement,
         )
         contains_interrogative_statement: bool = obj.contains_interrogative_statement
         return contains_interrogative_statement
@@ -280,8 +279,8 @@ class ClaimValidityJudge(LLMBaseModel):
     def _determine_contains_incomplete_statement(self, text: str) -> bool:
         obj = self._generate(
             text,
-            prompt_fn=self.detect_incomplete_statement_template,
-            pydantic_model=ContainsIncompleteStatement,
+            prompt=self.detect_incomplete_statement_template,
+            response_format=ContainsIncompleteStatement,
         )
         contains_incomplete_statement: bool = obj.contains_incomplete_statement
         return contains_incomplete_statement
@@ -289,8 +288,8 @@ class ClaimValidityJudge(LLMBaseModel):
     async def _a_determine_contains_incomplete_statement(self, text: str) -> Awaitable[bool]:
         obj = await self._a_generate(
             text,
-            prompt_fn=self.detect_incomplete_statement_template,
-            pydantic_model=ContainsIncompleteStatement,
+            prompt=self.detect_incomplete_statement_template,
+            response_format=ContainsIncompleteStatement,
         )
         contains_incomplete_statement: bool = obj.contains_incomplete_statement
         return contains_incomplete_statement
@@ -298,8 +297,8 @@ class ClaimValidityJudge(LLMBaseModel):
     def _determine_contains_vague_statement(self, text: str) -> bool:
         obj = self._generate(
             text,
-            prompt_fn=self.detect_vague_statement_template,
-            pydantic_model=ContainsVagueStatement,
+            prompt=self.detect_vague_statement_template,
+            response_format=ContainsVagueStatement,
         )
         contains_vague_statement: bool = obj.contains_vague_statement
         return contains_vague_statement
@@ -307,8 +306,8 @@ class ClaimValidityJudge(LLMBaseModel):
     async def _a_determine_contains_vague_statement(self, text: str) -> Awaitable[bool]:
         obj = await self._a_generate(
             text,
-            prompt_fn=self.detect_vague_statement_template,
-            pydantic_model=ContainsVagueStatement,
+            prompt=self.detect_vague_statement_template,
+            response_format=ContainsVagueStatement,
         )
         contains_vague_statement: bool = obj.contains_vague_statement
         return contains_vague_statement

@@ -11,6 +11,9 @@ class LazyFileLogger(logging.Logger):
     def __init__(self, name: str, log_file: str | Path | None, level=logging.DEBUG) -> None:
         super().__init__(name, level)
         self.log_file = Path(log_file).as_posix() if log_file else None
+        if self.log_file:
+            Path(self.log_file).parent.mkdir(parents=True, exist_ok=True)
+
         self.handler_initialized = False
 
     def _initialize_file_handler(self) -> None:

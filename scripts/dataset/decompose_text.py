@@ -45,7 +45,15 @@ from rq_utils import (
     shutdown_all_workers,
     start_workers,
 )
-from utils import flatten_list_of_list, get_local_time, get_utc_time, load_environment, save_pandas
+from utils import (
+    flatten_list_of_list,
+    get_function_status_string,
+    get_local_time,
+    get_utc_time,
+    load_environment,
+    save_pandas,
+    send_notification,
+)
 from utils import save_pickle as _save_pickle
 
 load_environment()
@@ -239,7 +247,7 @@ def main(
         default=False, help="Whether to load nodes from Vectorstore if already exists."
     ),
     num_parallel_pipelines: int = typer.Option(
-        default=100, help="Number of notes to ingest in parallel."
+        default=50, help="Number of notes to ingest in parallel."
     ),
     embed_batch_size: int = typer.Option(default=100, help="Batch size for embedding nodes."),
     semantic_threshold: int = typer.Option(
@@ -252,7 +260,7 @@ def main(
         default=32, help="Number of concurrent embedding jobs allowed per pipeline."
     ),
     llm_n_jobs: int = typer.Option(
-        default=4, help="Number of concurrent LLM jobs allowed per pipeline."
+        default=16, help="Number of concurrent LLM jobs allowed per pipeline."
     ),
     llm_temperature: float = typer.Option(default=0.1, help="Temperature for LLM sampling."),
     llm_top_p: float = typer.Option(default=1.0, help="Top-p threshold for LLM sampling."),
@@ -269,6 +277,9 @@ def main(
 ) -> None:
     """Decompose MIMIC-III Notes into Atomic Claim and Sentence Nodes
     and store into Vectorstore using parallel async processes."""
+    start_utc_time = get_utc_time(output_format="str")
+    start_local_time = get_local_time(output_format="str")
+
     ## Data Paths
     if dataset_dir is None:
         dataset_dir = Path(os.environ["MIMIC3_DATA_DIR"])
@@ -277,7 +288,6 @@ def main(
     ## Load Note Files
     mimic_note_reader = MIMICIIINoteReader()
     note_nodes = mimic_note_reader.load_data(file_path=input_path)
-    logger.debug(f"Num MIMIC-III Notes: {len(note_nodes)}")
 
     ## Create/Get Vectorstore Collection
     vs: QdrantVectorStore = get_vectorstore(collection_name=collection_name)
@@ -349,6 +359,26 @@ def main(
             output_dir_name = "output"
         output_dir = Path(dataset_dir) / output_dir_name
         output_dir.mkdir(exist_ok=True, parents=True)
+
+        # Convert Nodes into DataFrame
+        sentence_nodes_df = nodes_to_dataframe(all_sentence_nodes)
+        semantic_nodes_df = nodes_to_dataframe(all_semantic_nodes)
+        claim_nodes_df = nodes_to_dataframe(all_claim_nodes)
+
+        # Deduplicate Nodes with Same Node ID
+        # (same text, subject_id, row_id, author_type, node_kind)
+        # This can occur if the same text occurs more than once in the same document
+        # in different places.
+        sentence_nodes_df = sentence_nodes_df.drop_duplicates(subset=["node_id"], keep="first")
+        semantic_nodes_df = semantic_nodes_df.drop_duplicates(subset=["node_id"], keep="first")
+        claim_nodes_df = claim_nodes_df.drop_duplicates(subset=["node_id"], keep="first")
+
+        # Save DataFrames
+        save_pandas(sentence_nodes_df, output_dir / "sentences.feather")
+        save_pandas(semantic_nodes_df, output_dir / "semantic_chunks.feather")
+        save_pandas(claim_nodes_df, output_dir / "claims.feather")
+
+        # Save as Pickled List of Node Objects
         if all_sentence_nodes:
             _save_pickle(obj=all_sentence_nodes, filepath=output_dir / "sentences.pkl")
         if all_semantic_nodes:
@@ -358,17 +388,11 @@ def main(
         if all_document_nodes:
             _save_pickle(obj=all_document_nodes, filepath=output_dir / "documents.pkl")
 
-        # Convert Nodes into DataFrame
-        sentence_nodes_df = nodes_to_dataframe(all_sentence_nodes)
-        save_pandas(sentence_nodes_df, output_dir / "sentences.feather")
-        semantic_nodes_df = nodes_to_dataframe(all_semantic_nodes)
-        save_pandas(semantic_nodes_df, output_dir / "semantic_chunks.feather")
-        claim_nodes_df = nodes_to_dataframe(all_claim_nodes)
-        save_pandas(claim_nodes_df, output_dir / "claims.feather")
-
-    utc_timestamp = get_utc_time(output_format="str")
-    local_timestamp = get_local_time(output_format="str")
-    logger.info(f"Completed Job at: {utc_timestamp} UTC Time ({local_timestamp} Local Time)")
+    # Notify Completion
+    msg = get_function_status_string(
+        filename=__file__, start_utc_time=start_utc_time, start_local_time=start_local_time
+    )
+    send_notification(title="Completed Run", message=msg, url=os.environ["NOTIFY_WEBHOOK_URL"])
 
 
 if __name__ == "__main__":

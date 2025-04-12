@@ -1,18 +1,16 @@
 # Verifying Facts in LLM-Generated Clinical Text with Electronic Health Records
 
-Preprint Manuscript: [VeriFact: Verifying Facts in LLM-Generated Clinical Text with Electronic Health Records](https://arxiv.org/abs/2501.16672)
+**Preprint Manuscript:** [VeriFact: Verifying Facts in LLM-Generated Clinical Text with Electronic Health Records](https://arxiv.org/abs/2501.16672)
 
-`VeriFact`: A long-form text fact-checker that verifies any text written about a patient against their own electronic health record (EHR). VeriFact decomposes the text into a set of propositions which are individually verified against the patient's EHR. VeriFact combines RAG with LLM-as-a-Judge to perform fact verification.
+**Dataset:** [MIMIC-III-Ext-VeriFact-BHC: Labeled Propositions From Brief Hospital Course Summaries for Long-form Clinical Text Evaluation](https://physionet.org/content/mimic-iii-ext-verifact-bhc/1.0.0/)
 
-`VeriFact-BHC`: A dataset to benchmark `VeriFact` performance against human clinicians. This dataset is derived from MIMIC-III Clinical Database v1.4. It contains human-written Brief Hospital Course (BHC) narratives typically found in discharge summaries and also a LLM-written BHC for 100 patients. It also contains the reference EHR for each patient. All BHC narratives are decomposed into propositions which are annotated by clinicians to develop a human clinician ground truth.
+`VeriFact`is a long-form text fact-checker that verifies any text written about a patient against their own electronic health record (EHR). VeriFact decomposes the text into a set of propositions which are individually verified against the patient's EHR. VeriFact combines RAG with LLM-as-a-Judge to perform fact verification.
+
+`VeriFact-BHC` is a dataset to benchmark `VeriFact` performance against human clinicians. This dataset is derived from MIMIC-III Clinical Database v1.4. It contains human-written Brief Hospital Course (BHC) narratives typically found in discharge summaries and also a LLM-written BHC for 100 patients. It also contains the reference EHR for each patient. All BHC narratives are decomposed into propositions which are annotated by clinicians to develop a human clinician ground truth.
 
 ## Scripts
 
-Scripts to generate the unannotated `VeriFact-BHC` dataset and run the `VeriFact` system to generate AI rater labels are contained in `scripts/dataset`. These scripts rely on the locally-deployed services which are described below.
-
-Scripts for experimental results are in `scripts/analysis`.
-
-Scripts to evaluate any arbitrary text written about a patient against their EHR is in `scripts/evaluate`.
+Scripts to generate the unannotated `VeriFact-BHC` dataset, run the `VeriFact` system to generate AI rater labels, and compute interrater agreement and classificaiton metrics are contained in `scripts`. These scripts rely on the locally-deployed services which are described below.
 
 ## Environment Variables
 
@@ -31,7 +29,7 @@ SERVER_BASE_URL=localhost
 ADMIN_EMAIL=email@domain.edu
 ```
 
-If you plan to commit this code to a public repo, git ignore the `.env` file so you do not commit your secrets.
+If you plan to commit this code to a public repo, git ignore the `.env` file so you do not commit your secrets. The `.env` is made available in this repo for visibility to default environment variables which are used by docker containers and scripts.
 
 ## Python Environment
 
@@ -52,7 +50,7 @@ Local services include:
 
 1. Local Embedding Model (requires GPU): customized `infinity` inference engine to serve the [BAAI/bge-m3](https://huggingface.co/BAAI/bge-m3) model with both dense and sparse embedding generation.
 2. Local Rerank Model (requires GPU): customized `infinity` inference engine to serve the [BAAI/bge-reranker-v2-m3](https://huggingface.co/BAAI/bge-reranker-v2-m3) reranking model.
-3. Local LLM Inference Service (requires GPU): `vLLM` serving for [hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4](https://huggingface.co/hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4). Either tensor parallel over multiple GPUs or data parallel with a round robin load balancer if GPU has adequate VRAM to host a single model on each GPU.
+3. Local LLM Inference Service (requires GPU): `vLLM` serving for [hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4](https://huggingface.co/hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4).
 4. Vector Database: locally hosted `qdrant` vector database
 5. Traefik: router, reverse proxy, load balancer
 6. Redis: key-value store for redis-queue
@@ -91,14 +89,11 @@ docker compose up traefik -d
 # RQ-Dashboard: ${SERVER_URL}:9181
 docker compose up qdrant redis rq-dashboard -d
 
-# Launch Local LLM Inference API on GPU0,1 in Tensor Parallel Configuration (uses vLLM)
-# Preferred if GPU VRAM < 80GB and GPUs connected via PCIe 4.0 or faster (e.g. NVLink)
-# The default LLM is a quantized Llama 3.1 70B model, which requires 37GB VRAM for the model itself.
-docker compose up llmtp2 -d
+# Launch Local LLM Inference API in Tensor Parallel Configuration (uses vLLM)
+# The default LLM is a quantized Llama 3.1 70B model, which requires 37GB VRAM for the model itself. This container configures the LLM inference service in tensor parallelism which splits model weights across 2 GPUs.
+docker compose up llm-tp2 -d
 
-# Launch Local LLM Inference API on GPU0,1,2 (uses vLLM)
-# Traefik will distribute API requests across the LLM containers in round-robin fashion
-# The default LLM is a quantized Llama 3.1 70B model, which requires 37GB VRAM for the model itself.
+# Alternatively, launch local LLM Inference on a single GPU. Multiple docker containers can be launched and traefik will distribute API requests across the LLM containers in round-robin fashion
 # docker compose up llm0 llm1 llm2 -d
 
 # Launch Prometheus, Grafana dashboards for monitoring vLLM inference throughput
@@ -108,7 +103,7 @@ docker compose up prometheus grafana -d
 
 # Launch Embedding & Rerank Inference API on GPU3 (uses Infinity Embeddings)
 # These containers are customized for compatibility with BGE-M3 model and to reduce VRAM use
-docker compose up embed3 rerank3 -d
+docker compose up embed1 rerank1 -d
 ```
 
 Specific configurations for ports and URLs are found in the `.env` file that `docker-compose.yml` references.

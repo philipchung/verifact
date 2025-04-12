@@ -23,9 +23,17 @@ class SimpleVerdict(BaseModel):
 class Verdict(BaseModel):
     """Verdict model for judge with additional fields for text and reference."""
 
-    node_id: str | None = Field(default="", description="Node ID associated with the verdict.")
+    proposition_id: str | None = Field(
+        default="", description="Proposition ID associated with the verdict."
+    )
     verdict: str | None = Field(default="", description="Verdict result (e.g., Supported).")
     reason: str | None = Field(default="", description="Reason for the verdict.")
+    reasoning_chain: str | None = Field(
+        default="", description="Reasoning model's reasoning/thinking chain."
+    )
+    reasoning_final_answer: str | None = Field(
+        default="", description="Reasoning model's final answer."
+    )
     text: str | None = Field(default="", description="Text associated with the verdict.")
     reference: str | None = Field(
         default=None, description="Reference or citation for the verdict."
@@ -45,9 +53,11 @@ class Verdict(BaseModel):
         cls, simple_verdict: SimpleVerdict, text: str, reference: str, **kwargs
     ) -> "Verdict":
         return cls(
-            node_id=kwargs.get("node_id", ""),
+            proposition_id=kwargs.get("proposition_id", ""),
             verdict=simple_verdict.verdict,
             reason=simple_verdict.reason,
+            reasoning_chain=kwargs.get("reasoning_chain", ""),
+            reasoning_final_answer=kwargs.get("reasoning_final_answer", ""),
             text=text,
             reference=reference,
         )
@@ -62,16 +72,20 @@ class Verdict(BaseModel):
         return f"Text: {self.text}\nReference: \n{self.reference}"
 
     def report(self) -> str:
-        return (
+        report_str = (
             f"Verdict: {self.verdict}\nReason: {self.reason}\n"
             f"Text: {self.text}\nReference: \n{self.reference}"
         )
+        if self.reasoning_chain:
+            report_str += f"\nReasoning Chain: {self.reasoning_chain}"
+        if self.reasoning_final_answer:
+            report_str += f"\nReasoning Final Answer: {self.reasoning_final_answer}"
+        return report_str
 
 
 class InputTextAndReferenceContext(BaseModel):
     """Input model for judge."""
 
-    node_id: str = ""
     text: str
     reference: str
 

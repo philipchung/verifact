@@ -14,6 +14,7 @@ HUMAN_AUTHOR: Final[str] = "human"
 
 # RAG Retrieval Method
 DENSE: Final[str] = "dense"
+SPARSE: Final[str] = "sparse"
 HYBRID: Final[str] = "hybrid"
 RERANK: Final[str] = "rerank"
 

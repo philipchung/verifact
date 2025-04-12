@@ -2,8 +2,8 @@ from collections.abc import Awaitable, Callable, Coroutine
 from copy import deepcopy
 
 import pandas as pd
-from llama_index.core.bridge.pydantic import ConfigDict, Field
 from llama_index.llms.openai import OpenAI
+from pydantic import ConfigDict, Field
 from pydantic_utils.llm_base_model import LLMBaseModel
 from rag.components import get_llm, get_semantic_node_parser
 from rag.llms import OpenAILike
@@ -263,18 +263,18 @@ class HospitalCourseSummarizer(LLMBaseModel):
         token_ct = self._count_tokens(text)
         # If text is small enough, summarize it directly
         if token_ct <= self.max_chunk_size:
-            return self._generate(text, prompt_fn=self.prompt_summarize_note_template)
+            return self._generate(text, prompt=self.prompt_summarize_note_template)
         # If text is too large, split it into smaller chunks, summarize the chunks,
         # then combine them into a single summary
         else:
             chunks = self._split_text(text)
             summaries = [
-                self._generate(chunk, prompt_fn=self.prompt_summarize_note_template)
+                self._generate(chunk, prompt=self.prompt_summarize_note_template)
                 for chunk in chunks
             ]
             summaries_concat = "\n".join(summaries)
             combined_summary = self._generate(
-                summaries_concat, prompt_fn=self.prompt_combine_summaries_template
+                summaries_concat, prompt=self.prompt_combine_summaries_template
             )
             return combined_summary
 
@@ -283,36 +283,36 @@ class HospitalCourseSummarizer(LLMBaseModel):
         token_ct = self._count_tokens(text)
         # If text is small enough, summarize it directly
         if token_ct <= self.max_chunk_size:
-            return await self._a_generate(text, prompt_fn=self.prompt_summarize_note_template)
+            return await self._a_generate(text, prompt=self.prompt_summarize_note_template)
         # If text is too large, split it into smaller chunks, summarize the chunks,
         # then combine them into a single summary
         else:
             chunks = self._split_text(text)
             jobs = [
-                self._a_generate(chunk, prompt_fn=self.prompt_summarize_note_template)
+                self._a_generate(chunk, prompt=self.prompt_summarize_note_template)
                 for chunk in chunks
             ]
             summaries = await run_jobs(jobs, workers=self.max_parallel_note_chunks)
             summaries_concat = "\n".join(summaries)
             combined_summary = self._generate(
-                summaries_concat, prompt_fn=self.prompt_combine_summaries_template
+                summaries_concat, prompt=self.prompt_combine_summaries_template
             )
             return combined_summary
 
     def _write_brief_hospital_course(self, text: str) -> str:
         """Write the "Brief Hospital Course" section of a discharge summary."""
-        return self._generate(text, prompt_fn=self.prompt_brief_hospital_course_template)
+        return self._generate(text, prompt=self.prompt_brief_hospital_course_template)
 
     async def _a_write_brief_hospital_course(self, text: str) -> Awaitable[str]:
         """Write the "Brief Hospital Course" section of a discharge summary."""
-        return await self._a_generate(text, prompt_fn=self.prompt_brief_hospital_course_template)
+        return await self._a_generate(text, prompt=self.prompt_brief_hospital_course_template)
 
     def _refine_brief_hospital_course(self, brief_hospital_course: str, new_text: str) -> str:
         """Refine the "Brief Hospital Course" section of a discharge summary."""
         return self._generate(
             brief_hospital_course,
             new_text,
-            prompt_fn=self.prompt_refine_brief_hospital_course_template,
+            prompt=self.prompt_refine_brief_hospital_course_template,
         )
 
     async def _a_refine_brief_hospital_course(
@@ -322,17 +322,17 @@ class HospitalCourseSummarizer(LLMBaseModel):
         return await self._a_generate(
             brief_hospital_course,
             new_text,
-            prompt_fn=self.prompt_refine_brief_hospital_course_template,
+            prompt=self.prompt_refine_brief_hospital_course_template,
         )
 
     def _compact_brief_hospital_course(self, brief_hospital_course: str) -> str:
         """Compact the "Brief Hospital Course" section to make it more concise."""
         return self._generate(
-            brief_hospital_course, prompt_fn=self.prompt_compact_brief_hospital_course_template
+            brief_hospital_course, prompt=self.prompt_compact_brief_hospital_course_template
         )
 
     async def _a_compact_brief_hospital_course(self, brief_hospital_course: str) -> Awaitable[str]:
         """Compact the "Brief Hospital Course" section to make it more concise."""
         return await self._a_generate(
-            brief_hospital_course, prompt_fn=self.prompt_compact_brief_hospital_course_template
+            brief_hospital_course, prompt=self.prompt_compact_brief_hospital_course_template
         )

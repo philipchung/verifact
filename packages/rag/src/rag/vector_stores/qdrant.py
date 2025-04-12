@@ -431,7 +431,7 @@ class QdrantVectorStore(BasePydanticVectorStore):
             if self.enable_dense and vector_kind == "dense":
                 dense_vectors_config[vector_name] = {
                     "vector_size": len(embedding),
-                    "distance": rest.Distance.DOT,
+                    "distance": rest.Distance.COSINE,
                 }
             if self.enable_sparse and vector_kind == "sparse":
                 sparse_vectors_config[vector_name] = {}
@@ -465,7 +465,7 @@ class QdrantVectorStore(BasePydanticVectorStore):
             if self.enable_dense and vector_kind == "dense":
                 dense_vectors_config[vector_name] = {
                     "vector_size": len(embedding),
-                    "distance": rest.Distance.DOT,
+                    "distance": rest.Distance.COSINE,
                 }
             if self.enable_sparse and vector_kind == "sparse":
                 sparse_vectors_config[vector_name] = {}
@@ -518,7 +518,7 @@ class QdrantVectorStore(BasePydanticVectorStore):
         dense_vectors_config = {
             k: rest.VectorParams(
                 size=v.get("vector_size"),
-                distance=v.get("distance", rest.Distance.DOT),
+                distance=v.get("distance", rest.Distance.COSINE),
             )
             for k, v in dense_vectors_config.items()
         }
@@ -694,7 +694,7 @@ class QdrantVectorStore(BasePydanticVectorStore):
         dense_vectors_config = {
             k: rest.VectorParams(
                 size=v.get("vector_size"),
-                distance=v.get("distance", rest.Distance.DOT),
+                distance=v.get("distance", rest.Distance.COSINE),
             )
             for k, v in dense_vectors_config.items()
         }

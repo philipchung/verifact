@@ -4,7 +4,7 @@ vLLM-compatible and OpenAILike models."""
 # ruff: noqa: F403, F405
 from .base import *
 from .claim import *
-from .llm_base_model import LLMBaseModel
+from .llm_base_model import *
 from .prompts import *
 
 __all__ = [
@@ -12,6 +12,7 @@ __all__ = [
     "BaseListModel",
     "SimpleClaimList",
     "LLMBaseModel",
+    "LLM",
     "prompts",
 ]
 

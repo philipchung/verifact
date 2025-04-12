@@ -42,6 +42,7 @@ from rq_utils import (
     start_workers,
 )
 from utils import (
+    get_function_status_string,
     get_local_time,
     get_utc_time,
     load_environment,
@@ -49,6 +50,7 @@ from utils import (
     load_text,
     save_pandas,
     save_text,
+    send_notification,
 )
 
 load_environment()
@@ -118,7 +120,7 @@ def main(
     llm_temperature: float = typer.Option(default=0.5, help="Temperature for LLM sampling"),
     llm_top_p: float = typer.Option(default=1.0, help="Top-p sampling threshold for LLM"),
     parallel_bhc: int = typer.Option(
-        default=100, help="Number of parallel Brief Hospital Courses (BHC) being written."
+        default=10, help="Number of parallel Brief Hospital Courses (BHC) being written."
     ),
     summarizer_parallel_notes: int = typer.Option(
         default=24, help="Parallel notes being summarized for each BHC generation."
@@ -140,6 +142,12 @@ def main(
     ),
     queue_name: str = typer.Option(default="BHC-Writer", help="Name of the queue to use."),
 ) -> None:
+    from utils import load_environment
+
+    load_environment()
+    start_utc_time = get_utc_time(output_format="str")
+    start_local_time = get_local_time(output_format="str")
+
     # Data Paths
     if dataset_dir is None:
         dataset_dir = Path(os.environ["DATA_DIR"]) / "dataset"
@@ -226,6 +234,12 @@ def main(
         table_save_name=table_save_name,
     )
 
+    # Notify Completion
+    msg = get_function_status_string(
+        filename=__file__, start_utc_time=start_utc_time, start_local_time=start_local_time
+    )
+    send_notification(title="Completed Run", message=msg, url=os.environ["NOTIFY_WEBHOOK_URL"])
+
 
 def save_results_to_df(
     jobs: list[Job],
@@ -270,7 +284,7 @@ def save_results_to_df(
 
     utc_timestamp = get_utc_time(output_format="str")
     local_timestamp = get_local_time(output_format="str")
-    logger.info(f"Completed Job at: {utc_timestamp} UTC Time ({local_timestamp} Local Time)")
+    logger.info(f"Completed Run at: {utc_timestamp} UTC Time ({local_timestamp} Local Time)")
 
 
 if __name__ == "__main__":

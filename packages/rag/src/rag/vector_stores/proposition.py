@@ -89,3 +89,27 @@ def nodes_to_proposition(nodes: list[BaseNode]) -> list[Proposition]:
 def nodes_to_dataframe(nodes: list[BaseNode]) -> pd.DataFrame:
     rudimentary_units = nodes_to_proposition(nodes)
     return pd.DataFrame(ru.model_dump() for ru in rudimentary_units)
+
+
+def node_dataframe_to_propositions_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Formats Text Nodes DataFrame to Propositions DataFrame."""
+    return df.rename(
+        columns={
+            "node_id": "proposition_id",
+            "TEXT": "text",
+            "parent_text": "parent_text_chunk",
+            "SUBJECT_ID": "subject_id",
+            "ROW_ID": "row_id",
+            "HADM_ID": "hadm_id",
+        }
+    ).loc[
+        :,
+        [
+            "proposition_id",
+            "text",
+            "parent_text_chunk",
+            "subject_id",
+            "row_id",
+            "hadm_id",
+        ],
+    ]

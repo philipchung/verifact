@@ -4,12 +4,14 @@
 storage/**
 data/**
 docker/**
-scripts/analysis/1_proposition_validity/**
-scripts/analysis/2_interrater_between_human_clinicians/**
-scripts/analysis/3_verifact_vs_ground_truth_tables/**
-scripts/analysis/4_verifact_vs_ground_truth_label_distributions/**
-scripts/analysis/5_verifact_vs_ground_truth_sensitivity_analysis/**
-scripts/analysis/6_verifact_weak_to_strong_trajectory/**
+scripts/analysis_dataset/1_proposition_validity/**
+scripts/analysis_interrater/1_compute_interrater_agreement/**
+scripts/analysis_verifact/2_compute_verifact_agreement/**
+scripts/analysis_verifact/3_sensitivity_analysis_plots/**
+scripts/analysis_verifact/4_top_n_vs_reference_context_length/**
+scripts/analysis_verifact/5_best_model_sens_spec_ppv_npv/**
+scripts/analysis_verifact/6_metric_result_tables/**
+scripts/analysis_verifact/7_error_analysis/**
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

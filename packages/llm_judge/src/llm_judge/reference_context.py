@@ -42,7 +42,9 @@ class ReferenceContextMaker(BaseModel):
     admission_end: pd.Timestamp | None = Field(
         default=None, description="Hospital Admission End Time"
     )
-    node_kind: str | None = Field(default=CLAIM_NODE, description="Node Kind to Query")
+    fact_type: str | None = Field(
+        default=CLAIM_NODE, description="EHR Fact Type (Node Kind) to Query"
+    )
     query_mode: str = Field(default="hybrid", description="Query Mode for VectorStore")
     top_k: int = Field(default=5, description="Top K results to retrieve from each retriever.")
     dense_vector_name: str = Field(default="dense", description="Dense Vector Name")
@@ -88,7 +90,7 @@ class ReferenceContextMaker(BaseModel):
         subject_id: int | None = None,
         admission_start: pd.Timestamp | str | None = None,
         admission_end: pd.Timestamp | str | None = None,
-        node_kind: str | None = CLAIM_NODE,
+        fact_type: str | None = CLAIM_NODE,
         query_mode: str = "hybrid",
         top_k: int = 5,
         collection_name: str | None = None,
@@ -108,6 +110,7 @@ class ReferenceContextMaker(BaseModel):
         from utils import load_environment
 
         load_environment()
+        log_filepath = Path(log_filepath) if log_filepath else None
         if log_filepath:
             logger = LazyFileLogger(name=__name__, level=log_level, log_file=log_filepath)
         else:
@@ -140,7 +143,7 @@ class ReferenceContextMaker(BaseModel):
             subject_id=subject_id,
             admission_start=admission_start,
             admission_end=admission_end,
-            node_kind=node_kind,
+            fact_type=fact_type,
             query_mode=query_mode,
             top_k=top_k,
             collection_name=collection_name,
@@ -163,6 +166,20 @@ class ReferenceContextMaker(BaseModel):
         self.logger = LazyFileLogger(name=__name__, level=level, log_file=log_file)
         return self.logger
 
+    def setup_vectorstore(
+        self,
+        vectorstore: QdrantVectorStore | None,
+        collection_name: str | None = None,
+        timeout: float = 60.0,
+    ) -> QdrantVectorStore:
+        if vectorstore:
+            self.vector_store = vectorstore
+        else:
+            collection_name = collection_name or self.collection_name
+            timeout = timeout or self.timeout
+            self.vector_store = get_vectorstore(collection_name=collection_name, timeout=timeout)
+        return self.vector_store
+
     def build(
         self, texts: list[str], show_progress: bool = False, **kwargs
     ) -> InputTextsAndReferenceContexts:
@@ -178,7 +195,8 @@ class ReferenceContextMaker(BaseModel):
             sparse_vector_name=sparse_vector_name,
         )
         references = [
-            self._format_reference_context(retrieved_context=result) for result in results
+            self._format_reference_context(retrieved_context=result, text=text)
+            for text, result in zip(texts, results)
         ]
         return InputTextsAndReferenceContexts(
             texts=texts, references=references, raw_references=results
@@ -197,25 +215,50 @@ class ReferenceContextMaker(BaseModel):
                 "operator": "==",
             }
             criteria.append(subject_id_criteria)
-        if self.node_kind:
-            node_kind_criteria = {"key": "node_kind", "value": self.node_kind, "operator": "=="}
-            criteria.append(node_kind_criteria)
+        if self.fact_type:
+            fact_type_criteria = {
+                "key": "node_kind",
+                "value": self.fact_type,
+                "operator": "==",
+            }
+            criteria.append(fact_type_criteria)
         metadata_filter = MetadataFilters.from_dicts(criteria)
         if self.reference_only_admission:
+            if not self.admission_start or not self.admission_end:
+                raise ValueError(
+                    "Admission start and end times must be provided for `reference_only_admission`."
+                )
             # Qdrant Vector Store performs datetime range filtering using ISO8601 strings
-            if isinstance(self.admission_start, pd.Timestamp):
-                admission_start = self.admission_start.isoformat()
-            if isinstance(self.admission_end, pd.Timestamp):
-                admission_end = self.admission_end.isoformat()
+            # In MIMIC-III, CHARTDATE is always available. CHARTTIME is mostly available
+            # but NaT for some rows. For consistency, we use CHARTDATE for filtering
+            # and consider the admission start time boundary to be at midnight of the
+            # admission start date & the admission end time boundary to be at 23:59 of
+            # the admission end date.
+            admission_start = pd.Timestamp(
+                year=self.admission_start.year,
+                month=self.admission_start.month,
+                day=self.admission_start.day,
+                hour=0,
+                minute=0,
+                second=0,
+            )
+            admission_end = pd.Timestamp(
+                year=self.admission_end.year,
+                month=self.admission_end.month,
+                day=self.admission_end.day,
+                hour=23,
+                minute=59,
+                second=59,
+            )
             qdrant_filters = Filter(
                 must=[
                     FieldCondition(
                         key="CHARTDATE",
                         range=DatetimeRange(
                             gt=None,
-                            gte=admission_start,
+                            gte=admission_start.isoformat(),
                             lt=None,
-                            lte=admission_end,
+                            lte=admission_end.isoformat(),
                         ),
                     )
                 ]
@@ -319,156 +362,107 @@ class ReferenceContextMaker(BaseModel):
     def _format_reference_context(
         self,
         retrieved_context: list[NodeWithScore],
+        text: str | None = None,
     ) -> str:
         """Format a single retrieved context (from one query) into a string."""
-        const = types.SimpleNamespace(
-            SCORE=SCORE, ABSOLUTE_TIME=ABSOLUTE_TIME, RELATIVE_TIME=RELATIVE_TIME
+        # Reformat retrieved context into DataFrame
+        df = nodes_to_dataframe(retrieved_context)
+        if df.empty:
+            self.logger.warning(
+                f"Proposition: {text}, "
+                f"Empty DataFrame for Subject ID: {self.subject_id}, "
+                f"EHR Fact Type: {self.fact_type}, Query Mode: {self.query_mode}, "
+                f"Top N: {self.top_n}, Reference Format: {self.reference_format}, "
+                f"Deduplicate Text: {self.deduplicate_text}, "
+                f"Reference Only Admission: {self.reference_only_admission}, "
+            )
+            # Compose output string for No EHR Context
+            output_str = (
+                "Electronic Health Record Context\n"
+                "Ordered by Relevance Score (Highest to Lowest):\n"
+                "No Electronic Health Record Context Found."
+            )
+            return output_str
+        else:
+            const = types.SimpleNamespace(
+                SCORE=SCORE, ABSOLUTE_TIME=ABSOLUTE_TIME, RELATIVE_TIME=RELATIVE_TIME
+            )
+            match self.reference_format:
+                case const.SCORE:
+                    return self._format_reference_context_by_score(df)
+                case const.ABSOLUTE_TIME:
+                    return self._format_reference_context_by_absolute_time(df)
+                case const.RELATIVE_TIME:
+                    return self._format_reference_context_by_relative_time(df)
+                case _:
+                    raise ValueError(f"Invalid reference format: {self.reference_format}")
+
+    def _format_reference_context_by_score(self, df: pd.DataFrame) -> str:
+        # Ensure retrieved context is ordered by score
+        df.sort_values(by="score", ascending=False, inplace=True)
+        # Compose output string
+        output_str = (
+            "Electronic Health Record Context\n" "Ordered by Relevance Score (Highest to Lowest):\n"
         )
-        match self.reference_format:
-            case const.SCORE:
-                return self._format_reference_context_by_score(retrieved_context)
-            case const.ABSOLUTE_TIME:
-                return self._format_reference_context_by_absolute_time(retrieved_context)
-            case const.RELATIVE_TIME:
-                return self._format_reference_context_by_relative_time(retrieved_context)
-
-            case _:
-                raise ValueError(f"Invalid reference format: {self.reference_format}")
-
-    def _format_reference_context_by_score(
-        self,
-        retrieved_context: list[NodeWithScore],
-    ) -> str:
-        # Reformat retrieved context into DataFrame
-        df = nodes_to_dataframe(retrieved_context)
-        if df.empty:
-            # Compose output string
-            output_str = (
-                "Electronic Health Record Context\n"
-                "Ordered by Relevance Score (Highest to Lowest):\n"
-                "No Electronic Health Record Context Found."
+        for i, row in enumerate(df.itertuples()):
+            date, time, cat, desc = get_date_time_category_description(row)
+            output_str += (
+                f"{i+1}. Score: {row.score:.2f}, "
+                f"Note Category: {cat}, "
+                f"Note Description: {desc} "
+                f"| Text: {row.TEXT}\n"
             )
-            self.logger.warning(
-                f"Empty DataFrame for Subject ID: {self.subject_id}, "
-                f"Node Kind: {self.node_kind}, Query Mode: {self.query_mode}, "
-                f"Top N: {self.top_n}, Reference Format: {self.reference_format}, "
-                f"Deduplicate Text: {self.deduplicate_text}, "
-                f"Reference Only Admission: {self.reference_only_admission}, "
-            )
-        else:
-            # Ensure retrieved context is ordered by score
-            df.sort_values(by="score", ascending=False, inplace=True)
-            # Compose output string
-            output_str = (
-                "Electronic Health Record Context\n"
-                "Ordered by Relevance Score (Highest to Lowest):\n"
-            )
-            for i, row in enumerate(df.itertuples()):
-                date, time, cat, desc = get_date_time_category_description(row)
-                output_str += (
-                    f"{i+1}. Score: {row.score:.2f}, "
-                    f"Note Category: {cat}, "
-                    f"Note Description: {desc} "
-                    f"| Text: {row.TEXT}\n"
-                )
         return output_str
 
-    def _format_reference_context_by_absolute_time(
-        self,
-        retrieved_context: list[NodeWithScore],
-    ) -> str:
-        # Reformat retrieved context into DataFrame
-        df = nodes_to_dataframe(retrieved_context)
-        if df.empty:
-            # Compose output string
-            output_str = (
-                f"Hospital Admission Start: {self.admission_start}\n"
-                f"Hospital Admission End: {self.admission_end}\n"
-                ""
-                "Electronic Health Record Context\n"
-                "Ordered by Time (Earliest to Latest):\n"
-                "No Electronic Health Record Context Found."
+    def _format_reference_context_by_absolute_time(self, df: pd.DataFrame) -> str:
+        # Ensure retrieved context is ordered by time
+        df = sort_reference_context_by_time(df)
+        # Compose output string
+        output_str = (
+            f"Hospital Admission Start: {self.admission_start}\n"
+            f"Hospital Admission End: {self.admission_end}\n"
+            ""
+            "Electronic Health Record Context\n"
+            "Ordered by Time (Earliest to Latest):\n"
+        )
+        for i, row in enumerate(df.itertuples()):
+            date, time, cat, desc = get_date_time_category_description(row)
+            output_str += (
+                f"{i+1}. Date: {date}, Time: {time}, "
+                f"Note Category: {cat}, "
+                f"Note Description: {desc} "
+                f"| Text: {row.TEXT}\n"
             )
-            self.logger.warning(
-                f"Empty DataFrame for Subject ID: {self.subject_id}, "
-                f"Node Kind: {self.node_kind}, Query Mode: {self.query_mode}, "
-                f"Top N: {self.top_n}, Reference Format: {self.reference_format}, "
-                f"Deduplicate Text: {self.deduplicate_text}, "
-                f"Reference Only Admission: {self.reference_only_admission}, "
-            )
-        else:
-            # Ensure retrieved context is ordered by time
-            df = sort_reference_context_by_time(df)
-            # Compose output string
-            output_str = (
-                f"Hospital Admission Start: {self.admission_start}\n"
-                f"Hospital Admission End: {self.admission_end}\n"
-                ""
-                "Electronic Health Record Context\n"
-                "Ordered by Time (Earliest to Latest):\n"
-            )
-            for i, row in enumerate(df.itertuples()):
-                date, time, cat, desc = get_date_time_category_description(row)
-                output_str += (
-                    f"{i+1}. Date: {date}, Time: {time}, "
-                    f"Note Category: {cat}, "
-                    f"Note Description: {desc} "
-                    f"| Text: {row.TEXT}\n"
-                )
         return output_str
 
-    def _format_reference_context_by_relative_time(
-        self,
-        retrieved_context: list[NodeWithScore],
-    ) -> str:
-        # Reformat retrieved context into DataFrame
-        df = nodes_to_dataframe(retrieved_context)
+    def _format_reference_context_by_relative_time(self, df: pd.DataFrame) -> str:
+        # Ensure retrieved context is ordered by time
+        df = sort_reference_context_by_time(df)
+        df = df.assign(TIMEDELTA=self.admission_end - df.CHARTDATE)
         # Get Relative Times (days & hours ago from admission end)
         admission_start_timedelta = self.admission_end - self.admission_start
         admission_days = admission_start_timedelta.components.days
         admission_hrs = admission_start_timedelta.components.hours
+        # Compose output string
+        output_str = (
+            f"Hospital Admission Start: {admission_days} days {admission_hrs} hours ago\n"
+            f"Hospital Admission End: Now\n"
+            ""
+            "Electronic Health Record Context\n"
+            "Ordered by Time (Earliest to Latest):\n"
+        )
+        for i, row in enumerate(df.itertuples()):
+            note_timedelta = self.admission_end - row.CHARTDATE
+            note_td_days = note_timedelta.components.days
+            note_td_hours = note_timedelta.components.hours
 
-        if df.empty:
-            # Compose output string
-            output_str = (
-                f"Hospital Admission Start: {admission_days} days {admission_hrs} hours ago\n"
-                f"Hospital Admission End: Now\n"
-                ""
-                "Electronic Health Record Context\n"
-                "Ordered by Time (Earliest to Latest):\n"
-                "No Electronic Health Record Context Found."
+            _, _, cat, desc = get_date_time_category_description(row)
+            output_str += (
+                f"{i+1}. When: {note_td_days} days {note_td_hours} hours ago, "
+                f"Note Category: {cat}, "
+                f"Note Description: {desc} "
+                f"| Text: {row.TEXT}\n"
             )
-            self.logger.warning(
-                f"Empty DataFrame for Subject ID: {self.subject_id}, "
-                f"Node Kind: {self.node_kind}, Query Mode: {self.query_mode}, "
-                f"Top N: {self.top_n}, Reference Format: {self.reference_format}, "
-                f"Deduplicate Text: {self.deduplicate_text}, "
-                f"Reference Only Admission: {self.reference_only_admission}, "
-            )
-        else:
-            # Ensure retrieved context is ordered by time
-            df = sort_reference_context_by_time(df)
-            df = df.assign(TIMEDELTA=self.admission_end - df.CHARTDATE)
-            # Compose output string
-            output_str = (
-                f"Hospital Admission Start: {admission_days} days {admission_hrs} hours ago\n"
-                f"Hospital Admission End: Now\n"
-                ""
-                "Electronic Health Record Context\n"
-                "Ordered by Time (Earliest to Latest):\n"
-            )
-            for i, row in enumerate(df.itertuples()):
-                note_timedelta = self.admission_end - row.CHARTDATE
-                note_td_days = note_timedelta.components.days
-                note_td_hours = note_timedelta.components.hours
-
-                _, _, cat, desc = get_date_time_category_description(row)
-                output_str += (
-                    f"{i+1}. When: {note_td_days} days {note_td_hours} hours ago, "
-                    f"Note Category: {cat}, "
-                    f"Note Description: {desc} "
-                    f"| Text: {row.TEXT}\n"
-                )
         return output_str
 
 

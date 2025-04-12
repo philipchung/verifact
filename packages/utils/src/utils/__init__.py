@@ -2,6 +2,7 @@
 from .async_utils import *
 from .env import *
 from .file_utils import *
+from .func_utils import *
 from .json_utils import *
 from .list_utils import *
 from .log_utils import *
@@ -16,6 +17,7 @@ __all__ = [
     "async_utils",
     "env",
     "file_utils",
+    "func_utils",
     "json_utils",
     "list_utils",
     "log_utils",

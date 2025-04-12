@@ -1,10 +1,14 @@
-# Unannotated Dataset Construction
+# Creation of Unannotated Dataset and EHR Vector Database
+
+The first portion of these instructions under `Uannotated Dataset Creation` contains steps to create the unannotated dataset for the `VeriFact` study and `VeriFact-BHC`, meaning it does not contain any human or AI annotations. Due to the use of LLMs and some inherent stochasticity, the results will not be identical to the `VeriFact-BHC` dataset. This is because the LLM-written Brief Hospital Course (BHC) narrative will likely contain different text and the decomposition of LLM-written and Human-written BHC may be slightly different.
+
+The second portion of these instructions under `Create Reference Vector Database of EHR Facts for Evaluation` and `Evaluation` contains steps needed to run `VeriFact` on the annotated dataset we have created called `VeriFact-BHC`. The propositions from text decomposition are fixed in this dataset but derived from the same steps as `Unannotated Dataset Creation`. After the propositions were fixed, human clinicans annotated the dataset for ground truth labels to compare `VeriFact` against. You only need to run the code in the second portion to benchmark any modifications to `VeriFact` against the `VeriFact-BHC` dataset.
+
+## Unannotated Dataset Creation
 
 The following steps reproduce the creation of the unannotated dataset for the `VeriFact` study and `VeriFact-BHC`, meaning it does not contain any human or AI annotations.
 
-The following steps also run the VeriFact AI system to generate AI ratings for each proposition extracted from Brief Hospital Course (BHC) text narratives in the dataset. However, the text decomposition may be slightly different than in `VeriFact-BHC` and our reported experiments due to the non-deterministic nature of LLMs, so refer to `analysis` scripts on downloading the exact text decomposition and annotations used in `VeriFact-BHC`.
-
-## Create Dataset, Decomposed Text, and Vector Database of Facts
+The following steps also run the VeriFact AI system to generate AI ratings for each proposition extracted from Brief Hospital Course (BHC) text narratives in the dataset. However, the text decomposition may be slightly different than in `VeriFact-BHC` and our reported experiments due to the non-deterministic nature of LLMs, so refer to `analysis` scripts on downloading the exact text decomposition and annotations used in `VeriFact-BHC`
 
 ### Data Download
 
@@ -50,6 +54,8 @@ To suspend RQ workers while job is running:
 rq suspend --duration 300
 ```
 
+## Create Propositions for Dataset
+
 ### Decompose LLM-written and Human-written Brief Hospital Course (BHC) into Propositions
 
 The human-written BHC and LLM-written BHC undergo text decomposition to yield sentence propositions and atomic claim propositions. This process is as follows:
@@ -67,71 +73,66 @@ This script uses redis queue (RQ) to manage jobs and workers. Each worker is abl
 # Save Nodes to VectorDB
 # Save Nodes to pickle files on disk
 uv run python scripts/dataset/decompose_text.py --input-file="bhc_noteevents.feather" \
-    --dataset-dir="/remote/home/chungp/Developer/verifact/data/dataset" \
+    --dataset-dir="/remote/home/chungp/Developer/verifact-private/data/dataset" \
     --upsert-db --collection-name="bhc_noteevents" \
     --save-pickle --output-dir-name="bhc_nodes" \
-    --queue-name="human_bhc_decompose" --num-parallel-pipelines=100 --llm-n-jobs=100
+    --queue-name="human_bhc_decompose" --num-parallel-pipelines=50 --llm-n-jobs=32
 
 # Convert LLM-generated Brief Hospital Course --> Nodes 
 # Save Nodes to VectorDB
 # Save Nodes to pickle files on disk
 uv run python scripts/dataset/decompose_text.py --input-file="llm_bhc_noteevents.feather" \
-    --dataset-dir="/remote/home/chungp/Developer/verifact/data/dataset" \
+    --dataset-dir="/remote/home/chungp/Developer/verifact-private/data/dataset" \
     --upsert-db --collection-name="llm_bhc_noteevents" \
     --save-pickle --output-dir-name="llm_bhc_nodes" \
-    --queue-name="llm_bhc_decompose" --num-parallel-pipelines=100 --llm-n-jobs=100
+    --queue-name="llm_bhc_decompose" --num-parallel-pipelines=50 --llm-n-jobs=32
 ```
 
-### Decompose Patient's Reference EHR into Facts
+NOTE: that the scripts up to this point produces the unannotated dataset and is presented here to illustrate how the VeriFact propositions are created.
 
-All EHR notes undergo text decomposition to yield sentence facts and atomic claim facts. These facts are stored in a vector database for subsequent retrieval. The text decomposition process is exactly the same as for BHC.
+## Create Reference Vector Database of EHR Facts for Evaluation
+
+### From Unannotated Dataset
+
+For each patient, all EHR notes undergo text decomposition to yield sentence facts and atomic claim facts. These facts are stored in a vector database for subsequent retrieval. The text decomposition process is exactly the same as for decomposing the LLM-written and Human-written BHC.
 
 ```sh
 # Convert EHR notes --> Nodes
 # Save Nodes to VectorDB
 # Skip saving to pickle files on disk
 uv run python scripts/dataset/decompose_text.py --input-file="ehr_noteevents.feather" \
-    --dataset-dir="/remote/home/chungp/Developer/verifact/data/dataset" \
+    --dataset-dir="/remote/home/chungp/Developer/verifact-private/data/dataset" \
     --upsert-db --collection-name="ehr_noteevents" \
     --no-save-pickle \
     --no-load-nodes-from-vectorstore-if-exists \
-    --queue-name="ehr_note_decompose" --num-parallel-pipelines=100 --llm-n-jobs=100
+    --queue-name="ehr_note_decompose" --num-parallel-pipelines=32 --llm-n-jobs=16
 ```
 
 Each text unit is saved as a LlamaIndex `node`.
 
 This script uses redis queue (RQ) to manage jobs and workers. Each worker is able to process a single note which undergoes the transformation described above and may involve multiple embedding and LLM calls.
 
-## Evaluation
+### From Annotated VeriFact-BHC Dataset
 
-### Run VeriFact to Produce AI-generated Labels for each Proposition
+All of a patient's EHR notes for the `VeriFact-BHC` dataset are also available as part of the Annotated `VeriFact-BHC` dataset that can be downloaded from physionet.
 
-Evaluate each proposition against retrieved facts in the EHR. The same propositions from a BHC are evaluated together to generate a score report.
-
-Arguments specifying a specific BHC:
-
-* `subject_id`
-* `input_text_kind`
-* `node_kind`
-
-VeriFact Hyperparameters:
-
-* `retrieval_method`
-* `reference_format`
-* `reference_only_admission`
-* `top_n`
-
-Each combination of BHC arguments and VeriFact Hyperparameters yields a possible `ScoreReport`, which summarizes the degree to which a BHC is `Supported`, `Not Supported` or `Not Addressed`, provides explanations for each category, and also includes proposition-level verdicts and expalantions.
+In order to download the dataset, please complete the required CITI training and Data Use Agreement: <https://physionet.org/content/mimic-iii-ext-verifact-bhc/1.0.0/>
 
 ```sh
-# Run Evaluation for all subject_ids, author_types, proposition_types and all hyperparameters
-uv run python scripts/dataset/run_verifact.py
+# Download Dataset with Human Annotations from Physionet
+# Replace verifact with this repository's root path
+# Replace ${PHYSIONET_USERNAME} with your physionet username
+wget -r -N -c -np --directory-prefix=data --user ${PHYSIONET_USERNAME} --ask-password https://physionet.org/files/mimic-iii-ext-verifact-bhc/1.0.0/
 
-# Only run evaluation for specific subject_id, author_type, proposition_type
-uv run python scripts/dataset/run_verifact.py --subject-ids=1084 --input-text-kinds=llm --node-kinds="claim" --retrieval-methods="hybrid" --reference-formats="absolute_time" --reference-only-admission=True top-ns=50
+# Downloaded dataset is at path: verifact/data/physionet.org/files/mimic-iii-ext-verifact-bhc/1.0.0/
+
+# Convert EHR notes --> Nodes
+# Save Nodes to VectorDB
+# Skip saving to pickle files on disk
+uv run python scripts/dataset/decompose_text.py --input-file="ehr_noteevents.csv.gz" \
+    --dataset-dir="data/physionet.org/files/mimic-iii-ext-verifact-bhc/1.0.0/reference_ehr" \
+    --upsert-db --collection-name="ehr_noteevents" \
+    --no-save-pickle \
+    --no-load-nodes-from-vectorstore-if-exists \
+    --queue-name="ehr_note_decompose" --num-parallel-pipelines=32 --llm-n-jobs=16
 ```
-
-The evaluation outputs are saved as a pandas DataFrames:
-
-* ScoreReport DataFrame: `data/dataset/judges/score_reports/score_report.feather`: Each row is a `ScoreReport` that is generated during evaluation. A ScoreReport is a single rater's evaluation of all propositions of a text input (e.g. one BHC for one Subject ID). Additional columns specify Subject ID, BHC type, and VeriFact Hyperparameters.
-* Verdicts DataFrame: `data/dataset/judges/score_reports/verdicts.feather`: Each row is a `proposition` that has been assigned a `verdict` label (`Supported`, `Not Supported`, `Not Addressed`). Additional columns specify Subject ID, BHC type and VeriFact Hyperparameters. `proposition_id` uniquely identifies a proposition, which may be rated by multiple raters.
