@@ -1,293 +1,126 @@
 # Run VeriFact
 
-## Download Annotated Dataset
+This directory supports two different evaluation paths. Choose the path that matches the
+reproduction question.
 
-Evaluation involves using `VeriFact` to generate AI annotations for each proposition and compare them against human annotations. This requires human clinician annotations, which were generated separately and is not included in the scripts in `scripts/dataset`.
+1. `replay_physionet_v1_1_0.py` replays LLM-as-a-judge inference using the exact propositions,
+   retrieved reference contexts, and model/configuration coverage published in PhysioNet v1.1.0.
+   It does not require Qdrant, embedding, reranking, Redis, or rebuilding the EHR vector database.
+2. `run_verifact.py` reruns the complete retrieval-and-judging pipeline. It requires the EHR vector
+   database and all retrieval services. Retrieval results may differ from the released manuscript
+   inputs if the database, model, or service versions differ.
 
-The Annotated `VeriFact-BHC` Dataset can be downloaded from PhysioNet. In order to download the dataset, please complete the required CITI training and Data Use Agreement: <https://physionet.org/content/mimic-iii-ext-verifact-bhc/1.0.0/>
+## Setup
 
-```sh
-# Download Dataset with Human Annotations from Physionet
-# Replace verifact with this repository's root path
-# Replace ${PHYSIONET_USERNAME} with your physionet username
-wget -r -N -c -np --directory-prefix=data --user ${PHYSIONET_USERNAME} --ask-password https://physionet.org/files/mimic-iii-ext-verifact-bhc/1.0.0/
-
-# Downloaded dataset is at path: verifact/data/physionet.org/files/mimic-iii-ext-verifact-bhc/1.0.0/
-```
-
-In the dataset, we fix the propositions extracted from the long-form input text to make benchmarking consistent. If you want to run VeriFact to fact-check any arbitrary text written about one of the patients, please use `scripts/evaluate/run_verifact.py`.
-
-## Run VeriFact to Produce AI-generated Labels for each Proposition
-
-Evaluate each proposition against retrieved facts in the EHR. The same propositions from a BHC are evaluated together to generate a score report.
-
-Arguments specifying a specific BHC:
-
-* `subject_id`
-* `input_text_kind`
-* `node_kind`
-
-VeriFact Hyperparameters:
-
-* `retrieval_method`
-* `reference_format`
-* `reference_only_admission`
-* `top_n`
-
-Each combination of BHC arguments and VeriFact Hyperparameters yields a possible `ScoreReport`, which summarizes the degree to which a BHC is `Supported`, `Not Supported` or `Not Addressed`, provides explanations for each category, and also includes proposition-level verdicts and explantions.
+Install the Python environment, download
+[VeriFact-BHC v1.1.0](https://physionet.org/content/mimic-iii-ext-verifact-bhc/1.1.0/),
+and create a local environment file:
 
 ```sh
-# Run Evaluation for all subject_ids, author_types, proposition_types and all hyperparameters
-uv run python scripts/evaluate/run_verifact.py
-
-# Only run evaluation for specific subject_id, author_type, proposition_type
-uv run python scripts/evaluate/run_verifact.py --subject-ids=1084 --author_type=llm --proposition_type=claim --retrieval-method=hybrid --reference-format=absolute_time --reference-only-admission --top-n=50
+uv sync --all-packages --frozen
+cp .env.example .env
 ```
 
-## VeriFact Experiments
+Set `PROJECT_DIR`, `VERIFACTBHC_DATASET_DIR`, `HF_HOME`, GPU assignments, and `HF_TOKEN` in
+`.env` for the local machine. The `.env` file is ignored by Git. Do not place credentials in a
+model profile.
 
-Below contain sets of CLI commands used to run the `VeriFact` experiments.
+## Exact manuscript-input replay
 
-The evaluation outputs are saved as a pandas DataFrames:
+The replay manifest starts from the rows in `verifact/verdicts.parquet`. It then validates every
+row against `rater_configurations.csv`, `model_configuration_matrix.csv`, and
+`propositions.csv.gz`. Consequently, it replays only observations that exist in the release; it
+does not synthesize missing model/patient/configuration combinations.
 
-* **ScoreReport DataFrame:** `data/dataset/judges/score_reports/score_report.feather`: Each row is a `ScoreReport` that is generated during evaluation. A ScoreReport is a single rater's evaluation of all propositions of a text input (e.g. one BHC for one Subject ID). Additional columns specify Subject ID, BHC type, and VeriFact Hyperparameters.
-* **Verdicts DataFrame:** `data/dataset/judges/score_reports/verdicts.feather`: Each row is a `proposition` that has been assigned a `verdict` label (`Supported`, `Not Supported`, `Not Addressed`). Additional columns specify Subject ID, BHC type and VeriFact Hyperparameters. `proposition_id` uniquely identifies a proposition, which may be rated by multiple raters.
-
-### Non-Reasoning Models
-
-CLI Command to Run All Experiments for Non-Reasoning Model for a Single Model
-For each of these, adjust in `.env` LLM_MODEL_NAME and VERIFACT_RESULTS_DIR. The addition of `--output-subdir` argument will output the evaluation results in its own subdirectory.
-
-Models:
-
-1. `hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4`  (`--output-subdir="verifact_llama3_1_8B"`)
-2. `hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4` (`--output-subdir="verifact_llama3_1_70B"`)
-
-#### Author Type: LLM
-
-All experimental runs with:
-
-* Proposition Type: `Claim`, Fact Type: `Claim`
-* Proposition Type: `Claim`, Fact Type: `Sentence`
+First validate and summarize a selection without loading reference text or calling a model:
 
 ```sh
-# Top N Experiments
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimClaim-NumFacts5 --author-type=llm --proposition-type=claim --fact-type=claim --top-n=5 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimClaim-NumFacts10 --author-type=llm --proposition-type=claim --fact-type=claim --top-n=10 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimClaim-NumFacts25 --author-type=llm --proposition-type=claim --fact-type=claim --top-n=25 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimClaim-NumFacts50 --author-type=llm --proposition-type=claim --fact-type=claim --top-n=50 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimClaim-NumFacts75 --author-type=llm --proposition-type=claim --fact-type=claim --top-n=75 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimClaim-NumFacts100 --author-type=llm --proposition-type=claim --fact-type=claim --top-n=100 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimClaim-NumFacts125 --author-type=llm --proposition-type=claim --fact-type=claim --top-n=125 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimClaim-NumFacts150 --author-type=llm --proposition-type=claim --fact-type=claim --top-n=150 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimSentence-NumFacts5 --author-type=llm --proposition-type=claim --fact-type=sentence --top-n=5 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimSentence-NumFacts10 --author-type=llm --proposition-type=claim --fact-type=sentence --top-n=10 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimSentence-NumFacts25 --author-type=llm --proposition-type=claim --fact-type=sentence --top-n=25 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimSentence-NumFacts50 --author-type=llm --proposition-type=claim --fact-type=sentence --top-n=50 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimSentence-NumFacts75 --author-type=llm --proposition-type=claim --fact-type=sentence --top-n=75 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimSentence-NumFacts100 --author-type=llm --proposition-type=claim --fact-type=sentence --top-n=100 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission
+uv run --frozen python scripts/evaluate/replay_physionet_v1_1_0.py \
+  --model-profile configs/inference/qwen-3-30b-a3b-thinking.env \
+  --dry-run
 ```
+
+Start Traefik and the selected main model. Reasoning models also require the auxiliary structured
+output model:
 
 ```sh
-# Retrieval Method, Reference Format, Reference Only Admission Experiments
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimClaim-RetrievalMethod --author-type=llm --proposition-type=claim --fact-type=claim --top-n=50 --retrieval-method=dense --retrieval-method=sparse --retrieval-method=hybrid --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\ 
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimClaim-ReferenceFormat --author-type=llm --proposition-type=claim --fact-type=claim --top-n=50 --retrieval-method=rerank --reference-format=score --reference-format=absolute_time --reference-format=relative_time --reference-only-admission;\ 
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimClaim-ReferenceOnlyAdmission --author-type=llm --proposition-type=claim --fact-type=claim --top-n=50 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --no-reference-only-admission
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimSentence-RetrievalMethod --author-type=llm --proposition-type=claim --fact-type=sentence --top-n=50 --retrieval-method=dense --retrieval-method=sparse --retrieval-method=hybrid --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\ 
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimSentence-ReferenceFormat --author-type=llm --proposition-type=claim --fact-type=sentence --top-n=50 --retrieval-method=rerank --reference-format=score --reference-format=absolute_time --reference-format=relative_time --reference-only-admission;\ 
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimSentence-ReferenceOnlyAdmission --author-type=llm --proposition-type=claim --fact-type=sentence --top-n=50 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --no-reference-only-admission
+# Non-reasoning example
+docker compose --env-file .env \
+  --env-file configs/inference/gemma-3-12b.env \
+  up -d traefik llm-main
+
+# Reasoning example
+docker compose --env-file .env \
+  --env-file configs/inference/qwen-3-30b-a3b-thinking.env \
+  up -d traefik llm-main llm-aux
 ```
 
-#### Author Type: LLM
-
-All experimental runs with:
-
-* Proposition Type: `Sentence`, Fact Type: `Claim`
-* Proposition Type: `Sentence`, Fact Type: `Sentence`
+Run a small inference smoke test before a larger replay:
 
 ```sh
-# Top N Experiments
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceClaim-NumFacts5 --author-type=llm --proposition-type=sentence --fact-type=claim --top-n=5 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceClaim-NumFacts10 --author-type=llm --proposition-type=sentence --fact-type=claim --top-n=10 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceClaim-NumFacts25 --author-type=llm --proposition-type=sentence --fact-type=claim --top-n=25 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceClaim-NumFacts50 --author-type=llm --proposition-type=sentence --fact-type=claim --top-n=50 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceClaim-NumFacts75 --author-type=llm --proposition-type=sentence --fact-type=claim --top-n=75 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceClaim-NumFacts100 --author-type=llm --proposition-type=sentence --fact-type=claim --top-n=100 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceClaim-NumFacts125 --author-type=llm --proposition-type=sentence --fact-type=claim --top-n=125 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceClaim-NumFacts150 --author-type=llm --proposition-type=sentence --fact-type=claim --top-n=150 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceSentence-NumFacts5 --author-type=llm --proposition-type=sentence --fact-type=sentence --top-n=5 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceSentence-NumFacts10 --author-type=llm --proposition-type=sentence --fact-type=sentence --top-n=10 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceSentence-NumFacts25 --author-type=llm --proposition-type=sentence --fact-type=sentence --top-n=25 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceSentence-NumFacts50 --author-type=llm --proposition-type=sentence --fact-type=sentence --top-n=50 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceSentence-NumFacts75 --author-type=llm --proposition-type=sentence --fact-type=sentence --top-n=75 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceSentence-NumFacts100 --author-type=llm --proposition-type=sentence --fact-type=sentence --top-n=100 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission
+uv run --frozen python scripts/evaluate/replay_physionet_v1_1_0.py \
+  --model-profile configs/inference/qwen-3-30b-a3b-thinking.env \
+  --subject-id 1084 \
+  --limit 10
 ```
 
-#### Author Type: Human
+Selections over 1,000 rows require `--allow-large-run`. Repeat options such as `--subject-id`,
+`--rater-alias`, `--author-type`, `--proposition-type`, `--fact-type`, and `--top-n` to select
+multiple values. Output is partitioned by rater and BHC, and `--resume` validates and skips complete
+partitions.
 
-All experimental runs with:
+Each output row includes the release key, expected released verdict, replayed verdict and reason,
+and `verdict_matches_release`. This comparison is diagnostic: exact input replay does not guarantee
+byte-identical generated text or labels because inference can be stochastic and hardware/runtime
+details can affect generation.
 
-* Proposition Type: `Claim`, Fact Type: `Claim`
-* Proposition Type: `Claim`, Fact Type: `Sentence`
+## Published model profiles
+
+The files in `configs/inference/` pin the release model and tokenizer identities and the runtime
+mode needed by each manuscript judge:
+
+| Release model | Profile | Reasoning |
+| --- | --- | --- |
+| Llama-8B | `llama-8b.env` | No |
+| Llama-70B | `llama-70b.env` | No |
+| R1-8B | `r1-8b.env` | Yes |
+| R1-70B | `r1-70b.env` | Yes |
+| Gemma-3-12B | `gemma-3-12b.env` | No |
+| Gemma-3-27B | `gemma-3-27b.env` | No |
+| Qwen-3-30B-A3B-Instruct | `qwen-3-30b-a3b-instruct.env` | No |
+| Qwen-3-30B-A3B-Thinking | `qwen-3-30b-a3b-thinking.env` | Yes |
+| Qwen-3-32B | `qwen-3-32b.env` | No; thinking is explicitly disabled |
+
+The replay command fails before inference if the selected profile disagrees with
+`model_metadata.csv`. See `configs/inference/README.md` for the profile contract.
+
+## Full retrieval-and-judging pipeline
+
+Use this path to test a changed retrieval system or to fact-check arbitrary text. It requires:
+
+- Qdrant populated with sentence and atomic-claim EHR facts;
+- embedding and reranking APIs;
+- Redis and RQ workers;
+- the selected main LLM and, for reasoning models, the auxiliary LLM.
+
+After creating the vector database as described in `scripts/dataset/README.md`, run a bounded
+configuration explicitly:
 
 ```sh
-# Top N Experiments
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimClaim-NumFacts5 --author-type=human --proposition-type=claim --fact-type=claim --top-n=5 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimClaim-NumFacts10 --author-type=human --proposition-type=claim --fact-type=claim --top-n=10 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimClaim-NumFacts25 --author-type=human --proposition-type=claim --fact-type=claim --top-n=25 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimClaim-NumFacts50 --author-type=human --proposition-type=claim --fact-type=claim --top-n=50 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimClaim-NumFacts75 --author-type=human --proposition-type=claim --fact-type=claim --top-n=75 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimClaim-NumFacts100 --author-type=human --proposition-type=claim --fact-type=claim --top-n=100 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimClaim-NumFacts125 --author-type=human --proposition-type=claim --fact-type=claim --top-n=125 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimClaim-NumFacts150 --author-type=human --proposition-type=claim --fact-type=claim --top-n=150 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimSentence-NumFacts5 --author-type=human --proposition-type=claim --fact-type=sentence --top-n=5 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimSentence-NumFacts10 --author-type=human --proposition-type=claim --fact-type=sentence --top-n=10 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimSentence-NumFacts25 --author-type=human --proposition-type=claim --fact-type=sentence --top-n=25 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimSentence-NumFacts50 --author-type=human --proposition-type=claim --fact-type=sentence --top-n=50 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimSentence-NumFacts75 --author-type=human --proposition-type=claim --fact-type=sentence --top-n=75 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimSentence-NumFacts100 --author-type=human --proposition-type=claim --fact-type=sentence --top-n=100 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission
+uv run --frozen python scripts/evaluate/run_verifact.py \
+  --model-profile configs/inference/qwen-3-30b-a3b-thinking.env \
+  --run-name LLMClaimClaim-NumFacts50 \
+  --subject-id 1084 \
+  --author-type llm \
+  --proposition-type claim \
+  --fact-type claim \
+  --top-n 50 \
+  --retrieval-method rerank \
+  --reference-format absolute_time \
+  --reference-only-admission
 ```
 
-### R1 Distilled Reasoning Models
-
-CLI Command to Run All Experiments for Reasoning Model for a Single Model As of vLLM v0.7.2, reasoning models are not compatible with Structured Outputs, so we chain the output of the reasoning model with an auxillary LLM (Llama 3.1 8B) to obtain structured outputs. This logic is activated with the flag `--is-reasoning-model`
-
-For each of these, adjust in `.env` LLM_MODEL_NAME and VERIFACT_RESULTS_DIR
-AUX_LLM_MODEL_NAME is fixed to `hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4`. The addition of `--output-subdir` argument will output the evaluation results in its own subdirectory.
-
-Models:
-
-1. `casperhansen/deepseek-r1-distill-llama-8b-awq` (`--output-subdir="verifact_deepseek_r1_distill_llama_8B"`)
-2. `casperhansen/deepseek-r1-distill-llama-70b-awq` (`--output-subdir="verifact_deepseek_r1_distill_llama_70B"`)
-
-#### Author Type: LLM
-
-All experimental runs with:
-
-* Proposition Type: `Claim`, Fact Type: `Claim`
-* Proposition Type: `Claim`, Fact Type: `Sentence`
-
-```sh
-# Top N Experiments
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimClaim-NumFacts5 --author-type=llm --proposition-type=claim --fact-type=claim --top-n=5 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimClaim-NumFacts10 --author-type=llm --proposition-type=claim --fact-type=claim --top-n=10 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimClaim-NumFacts25 --author-type=llm --proposition-type=claim --fact-type=claim --top-n=25 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimClaim-NumFacts50 --author-type=llm --proposition-type=claim --fact-type=claim --top-n=50 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimClaim-NumFacts75 --author-type=llm --proposition-type=claim --fact-type=claim --top-n=75 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimClaim-NumFacts100 --author-type=llm --proposition-type=claim --fact-type=claim --top-n=100 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimClaim-NumFacts125 --author-type=llm --proposition-type=claim --fact-type=claim --top-n=125 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimClaim-NumFacts150 --author-type=llm --proposition-type=claim --fact-type=claim --top-n=150 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimSentence-NumFacts5 --author-type=llm --proposition-type=claim --fact-type=sentence --top-n=5 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimSentence-NumFacts10 --author-type=llm --proposition-type=claim --fact-type=sentence --top-n=10 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimSentence-NumFacts25 --author-type=llm --proposition-type=claim --fact-type=sentence --top-n=25 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimSentence-NumFacts50 --author-type=llm --proposition-type=claim --fact-type=sentence --top-n=50 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimSentence-NumFacts75 --author-type=llm --proposition-type=claim --fact-type=sentence --top-n=75 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimSentence-NumFacts100 --author-type=llm --proposition-type=claim --fact-type=sentence --top-n=100 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model
-```
-
-```sh
-# Retrieval Method, Reference Format, Reference Only Admission Experiments
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimClaim-RetrievalMethod --author-type=llm --proposition-type=claim --fact-type=claim --top-n=50 --retrieval-method=dense --retrieval-method=sparse --retrieval-method=hybrid --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\ 
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimClaim-ReferenceFormat --author-type=llm --proposition-type=claim --fact-type=claim --top-n=50 --retrieval-method=rerank --reference-format=score --reference-format=absolute_time --reference-format=relative_time --reference-only-admission --is-reasoning-model;\ 
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimClaim-ReferenceOnlyAdmission --author-type=llm --proposition-type=claim --fact-type=claim --top-n=50 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model --no-reference-only-admission
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimSentence-RetrievalMethod --author-type=llm --proposition-type=claim --fact-type=sentence --top-n=50 --retrieval-method=dense --retrieval-method=sparse --retrieval-method=hybrid --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\ 
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimSentence-ReferenceFormat --author-type=llm --proposition-type=claim --fact-type=sentence --top-n=50 --retrieval-method=rerank --reference-format=score --reference-format=absolute_time --reference-format=relative_time --reference-only-admission --is-reasoning-model;\ 
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMClaimSentence-ReferenceOnlyAdmission --author-type=llm --proposition-type=claim --fact-type=sentence --top-n=50 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model --no-reference-only-admission
-```
-
-#### Author Type: LLM
-
-All experimental runs with:
-
-* Proposition Type: `Sentence`, Fact Type: `Claim`
-* Proposition Type: `Sentence`, Fact Type: `Sentence`
-
-```sh
-# Top N Experiments
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceClaim-NumFacts5 --author-type=llm --proposition-type=sentence --fact-type=claim --top-n=5 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceClaim-NumFacts10 --author-type=llm --proposition-type=sentence --fact-type=claim --top-n=10 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceClaim-NumFacts25 --author-type=llm --proposition-type=sentence --fact-type=claim --top-n=25 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceClaim-NumFacts50 --author-type=llm --proposition-type=sentence --fact-type=claim --top-n=50 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceClaim-NumFacts75 --author-type=llm --proposition-type=sentence --fact-type=claim --top-n=75 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceClaim-NumFacts100 --author-type=llm --proposition-type=sentence --fact-type=claim --top-n=100 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceClaim-NumFacts125 --author-type=llm --proposition-type=sentence --fact-type=claim --top-n=125 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceClaim-NumFacts150 --author-type=llm --proposition-type=sentence --fact-type=claim --top-n=150 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceSentence-NumFacts5 --author-type=llm --proposition-type=sentence --fact-type=sentence --top-n=5 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceSentence-NumFacts10 --author-type=llm --proposition-type=sentence --fact-type=sentence --top-n=10 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceSentence-NumFacts25 --author-type=llm --proposition-type=sentence --fact-type=sentence --top-n=25 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceSentence-NumFacts50 --author-type=llm --proposition-type=sentence --fact-type=sentence --top-n=50 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceSentence-NumFacts75 --author-type=llm --proposition-type=sentence --fact-type=sentence --top-n=75 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=LLMSentenceSentence-NumFacts100 --author-type=llm --proposition-type=sentence --fact-type=sentence --top-n=100 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model
-```
-
-#### Author Type: Human
-
-All experimental runs with:
-
-* Proposition Type: `Claim`, Fact Type: `Claim`
-* Proposition Type: `Claim`, Fact Type: `Sentence`
-
-```sh
-# Top N Experiments
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimClaim-NumFacts5 --author-type=human --proposition-type=claim --fact-type=claim --top-n=5 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimClaim-NumFacts10 --author-type=human --proposition-type=claim --fact-type=claim --top-n=10 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimClaim-NumFacts25 --author-type=human --proposition-type=claim --fact-type=claim --top-n=25 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimClaim-NumFacts50 --author-type=human --proposition-type=claim --fact-type=claim --top-n=50 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimClaim-NumFacts75 --author-type=human --proposition-type=claim --fact-type=claim --top-n=75 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimClaim-NumFacts100 --author-type=human --proposition-type=claim --fact-type=claim --top-n=100 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimClaim-NumFacts125 --author-type=human --proposition-type=claim --fact-type=claim --top-n=125 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimClaim-NumFacts150 --author-type=human --proposition-type=claim --fact-type=claim --top-n=150 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimSentence-NumFacts5 --author-type=human --proposition-type=claim --fact-type=sentence --top-n=5 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimSentence-NumFacts10 --author-type=human --proposition-type=claim --fact-type=sentence --top-n=10 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimSentence-NumFacts25 --author-type=human --proposition-type=claim --fact-type=sentence --top-n=25 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimSentence-NumFacts50 --author-type=human --proposition-type=claim --fact-type=sentence --top-n=50 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimSentence-NumFacts75 --author-type=human --proposition-type=claim --fact-type=sentence --top-n=75 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model;\
-uv run python scripts/evaluate/run_verifact.py --run-name=HumanClaimSentence-NumFacts100 --author-type=human --proposition-type=claim --fact-type=sentence --top-n=100 --retrieval-method=rerank --reference-format=absolute_time --reference-only-admission --is-reasoning-model
-```
-
-## Run VeriFact on Arbitrary Text for a Patient in the Dataset
-
-For any Subject ID stored in the EHR vector database, run `VeriFact` to evaluate any arbitrary text written about that patient. This assumes the patient's EHR facts have been ingested into the vector database and is available for retrieval which is established under section `Decompose Patient's Reference EHR into Facts` in the `README.md` file in `scripts/dataset`.
-
-```sh
-# Evaluate Text and Save Score Report to disk. Must explicitly specify patient's Subject ID
-uv run scripts/evaluate/run_verifact2.py --text="Patient had sepsis, encephalopathy, and agitation, requiring the patient to be admitted to the ICU. When his confusion cleared, he was found to have taken Oxycodone instead of methadone." --subject-id=1084 --output-file=score_report.pkl
-```
-
-```python
-# Load Score Report
-from utils import load_pickle
-
-sr = load_pickle("score_report.pkl")
-
-print(sr.report())
-# Supported Score: 0.80
-# Not Supported Score: 0.20
-# Not Addressed Score: 0.00
-# Supported Count: 4
-# Not Supported Count: 1
-# Not Addressed Count: 0
-# Total Count: 5
-# Supported Explanation: The text is supported by the reference context due to the following reasons: the patient's sepsis is confirmed by infectious complications and UTI, encephalopathy is supported by multiple references to altered mental status, agitation is verified by multiple entries describing the patient's agitated state, and ICU admission is confirmed by references to ICU care and intubation.
-# Not Supported Explanation: The text is not supported by the reference context because it incorrectly states the patient took Oxycodone instead of methadone, when in fact the reference context mentions the patient took Ambien instead of methadone.
-# Not Addressed Explanation: No reasons provided for the text not being addressed by the reference context.
-# Proposition Type: claim
-# Fact Type: claim
-# Judge Configuration: {'subject_id': 1084, 'author_type': 'llm', 'proposition_type': 'claim', 'fact_type': 'claim', 'retrieval_method': 'rerank', 'top_n': 50, 'reference_format': 'absolute_time', 'reference_only_admission': True, 'deduplicate_text': True}
-```
-
-Alternative ways to run verifact on arbitrary text.
-
-```sh
-# Load Text from File, Evaluate and Save Score Report to disk. Must explicitly specify patient's Subject ID
-uv run scripts/evaluate/run_verifact2.py --text-file={path_to_textfile}.txt --subject-id=1084 --output-file=score_report.pkl
-
-# Specify atomic claim proposition
-uv run scripts/evaluate/run_verifact2.py --text-file={path_to_textfile}.txt --subject-id=1084 --output-file=score_report.pkl --proposition-type=claim
-
-# Specify sentence proposition
-uv run scripts/evaluate/run_verifact2.py --text-file={path_to_textfile}.txt --subject-id=1084 --output-file=score_report.pkl --proposition-type=sentence
-
-# Save Score Report as a dataframe instead of a pickled ScoreReport object.
-uv run scripts/evaluate/run_verifact2.py --text-file={path_to_textfile}.txt --subject-id=1084 --output-file=score_report.csv
-```
+Options with list types may be repeated to run a matrix. Avoid invoking the broad defaults until
+the bounded command and all services have been verified. `--model-profile` configures the host
+Python client as well as documenting the matching Docker overlay; it also supplies the reasoning
+mode and default output subdirectory.
