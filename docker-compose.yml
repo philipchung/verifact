@@ -61,9 +61,9 @@ services:
   ### 2. vLLM Service Containers - load balanced in vllm-service (GPU device and Ports are different)
 
   # Docker Containers using Two GPUs in Tensor Parallelism Configuration
-  llm-tp2:
-    image: vllm/vllm-openai:v0.7.3
-    container_name: llm-tp2
+  llm-main:
+    image: vllm/vllm-openai:v0.9.2
+    container_name: llm-main
     profiles: [ all, llm ]
     restart: unless-stopped
     shm_size: '4gb'
@@ -76,6 +76,9 @@ services:
       - ${LLM_CONTAINER_PORT}
     volumes:
       - ${HF_HOME}:/root/.cache/huggingface:rw
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+      - VLLM_USE_V1=${MAIN_VLLM_USE_V1}
     deploy:
       resources:
         reservations:
@@ -85,13 +88,13 @@ services:
               device_ids: [ '${TP2_GPU0}', '${TP2_GPU1}' ] # <--- GPU Devices available to container
     labels:
       - traefik.enable=true
-      - traefik.http.routers.llm-tp2.rule=Host(`llm.${DOMAIN}`)
-      - traefik.http.routers.llm-tp2.service=llm-service
+      - traefik.http.routers.llm-main.rule=Host(`llm.${DOMAIN}`)
+      - traefik.http.routers.llm-main.service=llm-service
       - traefik.http.services.llm-service.loadbalancer.server.port=${LLM_CONTAINER_PORT}
 
   # Auxillary LLM Server for Structured Outputs
   llm-aux:
-    image: vllm/vllm-openai:v0.7.3
+    image: vllm/vllm-openai:v0.9.2
     container_name: llm-aux
     restart: unless-stopped
     shm_size: '4gb'
@@ -104,6 +107,9 @@ services:
       - ${LLM_CONTAINER_PORT}
     volumes:
       - ${HF_HOME}:/root/.cache/huggingface:rw
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+      - VLLM_USE_V1=${AUX_VLLM_USE_V1}
     deploy:
       resources:
         reservations:
@@ -119,7 +125,7 @@ services:
 
   # vLLM Server on Individual GPUs
   llm0:
-    image: vllm/vllm-openai:v0.7.3
+    image: vllm/vllm-openai:v0.9.2
     container_name: llm0
     restart: unless-stopped
     shm_size: '4gb'
@@ -132,6 +138,9 @@ services:
       - ${LLM_CONTAINER_PORT}
     volumes:
       - ${HF_HOME}:/root/.cache/huggingface:rw
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+      - VLLM_USE_V1=${MAIN_VLLM_USE_V1}
     deploy:
       resources:
         reservations:
@@ -146,7 +155,7 @@ services:
       - traefik.http.services.llm-service.loadbalancer.server.port=${LLM_CONTAINER_PORT}
 
   llm1:
-    image: vllm/vllm-openai:v0.7.3
+    image: vllm/vllm-openai:v0.9.2
     container_name: llm1
     restart: unless-stopped
     shm_size: '4gb'
@@ -159,6 +168,9 @@ services:
       - ${LLM_CONTAINER_PORT}
     volumes:
       - ${HF_HOME}:/root/.cache/huggingface:rw
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+      - VLLM_USE_V1=${MAIN_VLLM_USE_V1}
     deploy:
       resources:
         reservations:
@@ -173,7 +185,7 @@ services:
       - traefik.http.services.llm-service.loadbalancer.server.port=${LLM_CONTAINER_PORT}
 
   llm2:
-    image: vllm/vllm-openai:v0.7.3
+    image: vllm/vllm-openai:v0.9.2
     container_name: llm2
     restart: unless-stopped
     shm_size: '4gb'
@@ -186,6 +198,9 @@ services:
       - ${LLM_CONTAINER_PORT}
     volumes:
       - ${HF_HOME}:/root/.cache/huggingface:rw
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+      - VLLM_USE_V1=${MAIN_VLLM_USE_V1}
     deploy:
       resources:
         reservations:
@@ -200,7 +215,7 @@ services:
       - traefik.http.services.llm-service.loadbalancer.server.port=${LLM_CONTAINER_PORT}
 
   llm3:
-    image: vllm/vllm-openai:v0.7.3
+    image: vllm/vllm-openai:v0.9.2
     container_name: llm3
     restart: unless-stopped
     shm_size: '4gb'
@@ -213,6 +228,9 @@ services:
       - ${LLM_CONTAINER_PORT}
     volumes:
       - ${HF_HOME}:/root/.cache/huggingface:rw
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+      - VLLM_USE_V1=${MAIN_VLLM_USE_V1}
     deploy:
       resources:
         reservations:

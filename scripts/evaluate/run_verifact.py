@@ -8,6 +8,7 @@ from typing import Annotated
 
 import pandas as pd
 import typer
+from dotenv import dotenv_values, load_dotenv
 from llm_judge import JudgeCohort, JudgeConfig, JudgeSingleSubject, ScoreReport
 from rag import (
     ABSOLUTE_TIME,
@@ -41,6 +42,36 @@ from utils import (
     save_pandas,
     send_notification,
 )
+
+
+def activate_model_profile(path: Path | str) -> dict[str, str]:
+    """Load a credential-free model profile after the machine-local `.env`."""
+    profile_path = Path(path).expanduser().resolve()
+    if not profile_path.is_file():
+        raise FileNotFoundError(f"Model profile does not exist: {profile_path}")
+    values = {key: value for key, value in dotenv_values(profile_path).items() if value is not None}
+    required = {
+        "VERIFACT_MODEL",
+        "VERIFACT_OUTPUT_SUBDIR",
+        "IS_REASONING_MODEL",
+        "LLM_MODEL_NAME",
+        "TOKENIZER_MODEL_NAME",
+    }
+    missing = sorted(required - set(values))
+    if missing:
+        raise ValueError(f"Model profile {profile_path} is missing required keys: {missing}")
+    reasoning = values["IS_REASONING_MODEL"].strip().lower()
+    if reasoning not in {"true", "false"}:
+        raise ValueError("IS_REASONING_MODEL in a model profile must be true or false")
+    load_dotenv(profile_path, override=True)
+    return values
+
+
+def resolve_reasoning_mode(is_reasoning_model: bool, profile: dict[str, str] | None) -> bool:
+    """Use the profile as the authoritative mode when one is selected."""
+    if profile:
+        return profile["IS_REASONING_MODEL"].strip().lower() == "true"
+    return is_reasoning_model
 
 
 def evaluate_judge(
@@ -173,6 +204,15 @@ def score_report_to_verdicts(score_report_df: pd.DataFrame) -> pd.DataFrame:
 
 def main(
     run_name: Annotated[str, typer.Option(help="Name of the run.")] = "run_verifact",
+    model_profile: Annotated[
+        Path | None,
+        typer.Option(
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            help="Model profile from configs/inference.",
+        ),
+    ] = None,
     dataset_dir: Annotated[
         str, typer.Option(help="Directory containing VeriFact-BHC dataset.")
     ] = None,
@@ -180,10 +220,12 @@ def main(
     admissions: Annotated[str, typer.Option(help="File containing admissions data.")] = None,
     output_dir: Annotated[str, typer.Option(help="Directory to output results.")] = None,
     output_subdir: Annotated[
-        str, typer.Option(help="Subdirectory to output results. Defaults to results.")
-    ] = "results",
+        str | None,
+        typer.Option(help="Result subdirectory; defaults to the profile value or results."),
+    ] = None,
     is_reasoning_model: Annotated[
-        bool, typer.Option(help="Set to True if LLM is a reasoning model.")
+        bool,
+        typer.Option(help="Reasoning mode when no --model-profile is selected."),
     ] = False,
     subject_id: Annotated[
         list[int], typer.Option(help="Subject ID to evaluate.  If not provided, evaluate all.")
@@ -266,6 +308,9 @@ def main(
     from utils import load_environment
 
     load_environment()
+    profile = activate_model_profile(model_profile) if model_profile else None
+    is_reasoning_model = resolve_reasoning_mode(is_reasoning_model, profile)
+    output_subdir = output_subdir or (profile["VERIFACT_OUTPUT_SUBDIR"] if profile else "results")
     start_utc_time = get_utc_time(output_format="str")
     start_local_time = get_local_time(output_format="str")
 

@@ -1,4 +1,6 @@
 # Project-specific
+.env
+.env.*.local
 .vscode
 *.code-workspace
 storage/**
@@ -7,11 +9,21 @@ docker/**
 scripts/analysis_dataset/1_proposition_validity/**
 scripts/analysis_interrater/1_compute_interrater_agreement/**
 scripts/analysis_verifact/2_compute_verifact_agreement/**
+scripts/analysis_verifact/2_compute_verifact_metrics/**
 scripts/analysis_verifact/3_sensitivity_analysis_plots/**
 scripts/analysis_verifact/4_top_n_vs_reference_context_length/**
+scripts/analysis_verifact/4_agreement_mcc_plots/**
 scripts/analysis_verifact/5_best_model_sens_spec_ppv_npv/**
+scripts/analysis_verifact/5_best_model_classification_metrics/**
 scripts/analysis_verifact/6_metric_result_tables/**
 scripts/analysis_verifact/7_error_analysis/**
+scripts/analysis_verifact/8_score_sheet_figure/**
+scripts/analysis_verifact/9_confusion_matrices/**
+scripts/analysis_verifact/9a_confusion_matrices_llama_vs_R1/**
+scripts/analysis_verifact/10_examine_propositions/**
+scripts/analysis_verifact/11_compute_verifact_metrics_stratified/**
+scripts/analysis_verifact/12_analyze_verifact_agreement_stratified/**
+scripts/evaluate/replay_outputs/**
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

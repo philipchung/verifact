@@ -17,6 +17,17 @@ DEFAULT_SYSTEM_PROMPT = (
 )
 
 
+def _optional_env_bool(name: str) -> bool | None:
+    value = os.environ.get(name, "").strip().lower()
+    if not value:
+        return None
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean value, received {value!r}.")
+
+
 def get_llm(
     model_name: str | None = None,
     api_base: str | None = None,
@@ -30,6 +41,7 @@ def get_llm(
     system_prompt: str = DEFAULT_SYSTEM_PROMPT,
     temperature: float = 0.7,
     top_p: float = 1.0,
+    enable_thinking: bool | None = None,
     **kwargs,
 ) -> OpenAILike:
     """Get LLM object.
@@ -78,6 +90,9 @@ def get_llm(
             to the first user message. Otherwise, an error may occur.
         temperature (float, optional): The temperature for sampling from the LLM.
         top_p (float, optional): Nucleus sampling (top-p) value for sampling from the LLM.
+        enable_thinking (bool | None, optional): Enable or disable Qwen 3 thinking through
+            chat-template arguments. When omitted for a Qwen 3 model, the value is read from
+            `LLM_CHAT_TEMPLATE_ENABLE_THINKING` if configured.
         kwargs (dict): Additional keyword arguments for the LLM API call.
 
     Returns:
@@ -88,6 +103,12 @@ def get_llm(
     api_base = api_base or os.environ["LLM_URL_BASE"]
     context_window = context_window or os.environ["LLM_MAX_MODEL_LEN"]
     additional_kwargs = {"top_p": top_p}
+    if enable_thinking is None and "Qwen3" in model_name:
+        enable_thinking = _optional_env_bool("LLM_CHAT_TEMPLATE_ENABLE_THINKING")
+    if enable_thinking is not None:
+        extra_body = kwargs.setdefault("extra_body", {})
+        chat_template_kwargs = extra_body.setdefault("chat_template_kwargs", {})
+        chat_template_kwargs.setdefault("enable_thinking", enable_thinking)
     # Model-specific Customization
     LLAMA_3_MODELS = (
         "meta-llama/Meta-Llama-3-8B-Instruct",
