@@ -8,16 +8,15 @@ import os
 from pathlib import Path
 from typing import Annotated
 
-import pandas as pd
 import typer
-from irr_metrics import MetricBunch, coerce_types
+from irr_metrics import MetricBunch
 from irr_metrics.binarize import binarize_verdicts_in_df
+from release_data import load_release_annotations, load_release_ground_truth
 from utils import (
     get_function_status_string,
     get_local_time,
     get_utc_time,
     load_environment,
-    load_pandas,
     send_notification,
 )
 
@@ -26,16 +25,30 @@ def main(
     metric: Annotated[
         str,
         typer.Option(
-            help="Interrater agreement metric to compute ('percent_agreement' or 'gwet')."
+            help="""Metric to compute ('percent_agreement', 'gwet', 'mcc',
+            's-tpr', 's-tnr', 's-ppv', 's-npv',
+            'ns-tpr', 'ns-tnr', 'ns-ppv', 'ns-npv',
+            'na-tpr', 'na-tnr', 'na-ppv', 'na-npv')."""
         ),
     ] = "percent_agreement",
     models: Annotated[
         list[str],
         typer.Option(
             help="List of VeriFact AI models to compute agreement metrics for. "
-            "Choose from 'Llama-8B', 'Llama-70B', 'R1-8B', 'R1-70B'. Default is all models.",
+            "Historical analysis names and PhysioNet release names are accepted. "
+            "Default is all models using historical names.",
         ),
-    ] = ["Llama-8B", "Llama-70B", "R1-8B", "R1-70B"],
+    ] = [
+        "Llama-8B",
+        "Llama-70B",
+        "R1-8B",
+        "R1-70B",
+        "Gemma3-12B",
+        "Gemma3-27B",
+        "Qwen3-32B",
+        "Qwen3-30B-A3B-Instruct",
+        "Qwen3-30B-A3B-Thinking",
+    ],
     author_type: Annotated[list[str], typer.Option(help="List of author types to include.")] = [
         "llm",
         "human",
@@ -68,6 +81,12 @@ def main(
         int,
         typer.Option(help="Number of bootstrap iterations for CI estimation. Default is 1000."),
     ] = 1000,
+    release_dir: Annotated[
+        Path | None,
+        typer.Option(
+            help="PhysioNet v1.1.0 release directory. Defaults to VERIFACTBHC_DATASET_DIR."
+        ),
+    ] = None,
     save_dir: Annotated[
         str,
         typer.Option(help="Directory to save computed metrics. "),
@@ -92,6 +111,7 @@ def main(
     ] = "VeriFact Agreement",
 ) -> None:
     load_environment()
+    release_dir = release_dir or Path(os.environ["VERIFACTBHC_DATASET_DIR"])
     start_utc_time = get_utc_time(output_format="str")
     start_local_time = get_local_time(output_format="str")
 
@@ -99,70 +119,28 @@ def main(
         raise ValueError("Invalid niceness value. Choose an integer between -20 and 19.")
     os.nice(niceness)
 
-    if metric not in ["percent_agreement", "gwet"]:
-        raise ValueError("Invalid metric. Choose from 'percent_agreement' or 'gwet'")
+    VALID_METRICS = [
+        "percent_agreement",
+        "gwet",
+        "mcc",
+        "s-tpr",
+        "s-tnr",
+        "s-ppv",
+        "s-npv",
+        "ns-tpr",
+        "ns-tnr",
+        "ns-ppv",
+        "ns-npv",
+        "na-tpr",
+        "na-tnr",
+        "na-ppv",
+        "na-npv",
+    ]
+    if metric not in VALID_METRICS:
+        raise ValueError(f"Invalid metric. Choose from {VALID_METRICS}.")
 
-    for model in models:
-        if model not in [
-            "Llama-8B",
-            "Llama-70B",
-            "R1-8B",
-            "R1-70B",
-        ]:
-            raise ValueError(
-                "Invalid model. Choose from 'Llama-8B', 'Llama-70B', 'R1-8B', 'R1-70B'."
-            )
-    # Load Human Clinician Verdict Labels (One Row Per Proposition)
-    human_verdicts = load_pandas(
-        Path(os.environ["VERIFACTBHC_PROPOSITIONS_DIR"]) / "human_verdicts.csv.gz"
-    )
-    human_verdicts = coerce_types(human_verdicts)
-    # Isolate Human Ground Truth Labels
-    human_gt = (
-        human_verdicts.assign(rater_name="human_gt")
-        .astype({"rater_name": "string"})
-        .rename(columns={"human_gt": "verdict"})
-        .loc[
-            :,
-            ["proposition_id", "text", "author_type", "proposition_type", "rater_name", "verdict"],
-        ]
-    )
-
-    # Map of VeriFact Result Directories for Each Model
-    model_dir_map = {
-        "Llama-8B": "verifact_llama3_1_8B",
-        "Llama-70B": "verifact_llama3_1_70B",
-        "R1-8B": "verifact_deepseek_r1_distill_llama_8B",
-        "R1-70B": "verifact_deepseek_r1_distill_llama_70B",
-    }
-    # Load VeriFact Labels for Different Models
-    model_data_dict: dict[str, pd.DataFrame] = {}
-    for model in models:
-        model_dir = model_dir_map[model]
-        model_data_dict[model] = coerce_types(
-            load_pandas(
-                Path(os.environ["VERIFACT_RESULTS_DIR"])
-                / model_dir
-                / "score_reports"
-                / "verdicts.feather"
-            )
-        )
-
-    # Combine all VeriFact Labels into a Single DataFrame
-    ai_verdicts = coerce_types(
-        pd.concat(
-            model_data_dict,
-            axis="index",
-            names=("model", "proposition_id"),
-        )
-        .reset_index()
-        .astype({"model": "string"})
-    )
-    ai_verdicts = ai_verdicts.assign(
-        rater_name=ai_verdicts.apply(
-            lambda row: f"model={row.model},{row.rater_name}", axis="columns"
-        )
-    )
+    human_gt = load_release_ground_truth(release_dir)
+    ai_verdicts = load_release_annotations(release_dir, models=models)
 
     # Subselect AI Verdicts for which we want to compute metrics
     if author_type:
@@ -181,7 +159,8 @@ def main(
         ai_verdicts = binarize_verdicts_in_df(ai_verdicts, verdict_name="verdict")
 
     # Compute Metric Bunch, reloading computed metrics from cache if available
-    name = f"ai_rater_{metric}_ci"
+    metric_name = metric.replace(" ", "_")
+    name = f"ai_rater_{metric_name}_ci"
     if binarize_labels:
         name = f"{name}_binarized"
     if save_dir:
@@ -191,7 +170,7 @@ def main(
             Path(os.environ["PROJECT_DIR"])
             / "scripts"
             / "analysis_verifact"
-            / "2_compute_verifact_agreement"
+            / "2_compute_verifact_metrics"
         )
     MetricBunch.from_defaults(
         name=name,

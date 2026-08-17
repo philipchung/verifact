@@ -49,6 +49,11 @@ model_dir_map = {
     "Llama-70B": "verifact_llama3_1_70B",
     "R1-8B": "verifact_deepseek_r1_distill_llama_8B",
     "R1-70B": "verifact_deepseek_r1_distill_llama_70B",
+    "Gemma3-12B": "verifact_gemma3_12B",
+    "Gemma3-27B": "verifact_gemma3_27B",
+    "Qwen3-32B": "verifact_qwen3_32B",
+    "Qwen3-30B-A3B-Instruct": "verifact_qwen3_30B-A3B-Instruct",
+    "Qwen3-30B-A3B-Thinking": "verifact_qwen3_30B-A3B-Thinking",
 }
 # Enumerate Unique Models
 models = list(model_dir_map.keys())

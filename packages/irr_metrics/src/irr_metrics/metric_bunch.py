@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from tqdm.auto import tqdm
 from utils import load_pandas, save_pandas
 
+from irr_metrics.classification_metrics import ClassificationMetrics
 from irr_metrics.constants import VERDICT_LABELS
 from irr_metrics.interrater import InterraterAgreement, MetricResult
 from irr_metrics.type_utils import coerce_types
@@ -426,6 +427,68 @@ class MetricBunch(BaseModel):
         return categorical_agreement
 
     @staticmethod
+    def classification_metrics_for_verdicts(
+        verdicts: pd.DataFrame,
+        metric: str | tuple = "mcc",
+        ground_truth: pd.DataFrame | None = None,
+        categories: Sequence[str] = VERDICT_LABELS,
+        bootstrap_iterations: int | None = None,
+        workers: int = 1,
+        show_progress: bool = True,
+    ) -> dict[str, MetricResult]:
+        """Compute Full Set of Classification Metrics for a DataFrame of
+        Rater Verdicts vs. Ground Truth."""
+        metric_result_dict = {}
+
+        # If no ground truth provided, assume passed in as concatenated with verdicts.
+        if ground_truth is None:
+            ground_truth = verdicts.query("rater_name == 'human_gt'")
+            rater_verdicts = verdicts.query("rater_name != 'human_gt'")
+        else:
+            rater_verdicts = verdicts
+            ground_truth = ground_truth
+
+        # Merge Rater Verdicts with Ground Truth on Proposition ID
+        # to Align rows by Proposition and drop propositions where there is not
+        # both a rater verdict and a ground truth label.
+        merged_df = pd.merge(
+            left=ground_truth,
+            right=rater_verdicts,
+            on="proposition_id",
+            suffixes=("_true", "_pred"),
+        ).dropna(subset=["verdict_true", "verdict_pred"])
+        if merged_df.empty:
+            raise ValueError(
+                "No overlapping proposition IDs between rater verdicts and ground truth."
+            )
+        # Compute Classification Metrics
+        cm = ClassificationMetrics.from_defaults(
+            rater_verdicts=merged_df.verdict_pred,
+            ground_truth=merged_df.verdict_true,
+            verdict_labels=categories,
+            bootstrap_iterations=bootstrap_iterations,
+            workers=workers,
+            show_progress=show_progress,
+        )
+        # Unstack Label-specific Metrics
+        for label in categories:
+            # abbreviate label names in metric_results dict
+            match label:
+                case "Supported":
+                    label_name = "s"
+                case "Not Supported":
+                    label_name = "ns"
+                case "Not Addressed":
+                    label_name = "na"
+                case _:
+                    raise ValueError(f"Unknown label: {label}")
+            for k, v in cm.metrics[label].items():
+                metric_result_dict[f"{label_name}-{k}"] = v
+        # Get Overall Metrics (computed across labels)
+        metric_result_dict["mcc"] = cm.metrics["overall"]["mcc"]
+        return metric_result_dict
+
+    @staticmethod
     def compute_interrater_agreement(
         rater_verdicts: pd.DataFrame,
         rater_type: str = "human",
@@ -487,7 +550,15 @@ class MetricBunch(BaseModel):
         Multiple raters agreement vs. ground truth are computed in parallel.
 
         The rater name from rater verdicts will become indices in the resulting metrics DataFrame.
+
+        Valid values for `metric` are:
+            - "percent_agreement": Percent Agreement
+            - "gwet": Gwet's AC1
+            - "mcc": Matthews Correlation Coefficient vs. Ground Truth
         """
+        # Set Metric to Lowercase for Consistency
+        metric = metric.lower()
+
         # Compute Agreement Metrics for Each Rater
         metric_dict: dict[str, MetricResult | None] = {}
         rater_names = []
@@ -509,18 +580,49 @@ class MetricBunch(BaseModel):
                 comparison_verdicts = pd.concat(
                     [ground_truth, one_rater_verdicts], axis="index"
                 ).query(f"proposition_id in {id_overlap}")  # noqa: F841
-                # Compute metrics
-                future = executor.submit(
-                    MetricBunch.categorical_agreement_metrics_for_verdicts,
-                    verdicts=comparison_verdicts,
-                    metric=metric,
-                    categories=categories,
-                    bootstrap_iterations=bootstrap_iterations,
-                    workers=workers,
-                    show_progress=show_progress,
-                )
-                futures.append(future)
-                rater_names.append(rater_name)
+                # Select metric function to compute
+                if metric in ("percent_agreement", "gwet"):
+                    # Compute Categorical Agreement Metric
+                    future = executor.submit(
+                        MetricBunch.categorical_agreement_metrics_for_verdicts,
+                        verdicts=comparison_verdicts,
+                        metric=metric,
+                        categories=categories,
+                        bootstrap_iterations=bootstrap_iterations,
+                        workers=workers,
+                        show_progress=show_progress,
+                    )
+                    futures.append(future)
+                    rater_names.append(rater_name)
+                elif metric in (
+                    "mcc",
+                    "s-tpr",
+                    "s-tnr",
+                    "s-ppv",
+                    "s-npv",
+                    "ns-tpr",
+                    "ns-tnr",
+                    "ns-ppv",
+                    "ns-npv",
+                    "na-tpr",
+                    "na-tnr",
+                    "na-ppv",
+                    "na-npv",
+                ):
+                    # Compute Classification Metric
+                    future = executor.submit(
+                        MetricBunch.classification_metrics_for_verdicts,
+                        verdicts=comparison_verdicts,
+                        metric=metric,
+                        categories=categories,
+                        bootstrap_iterations=bootstrap_iterations,
+                        workers=workers,
+                        show_progress=show_progress,
+                    )
+                    futures.append(future)
+                    rater_names.append(rater_name)
+                else:
+                    raise ValueError(f"Invalid metric: {metric}.")
 
             for _ in (
                 pbar := tqdm(as_completed(futures), total=len(futures), disable=not show_progress)
@@ -574,20 +676,24 @@ class MetricBunch(BaseModel):
     @staticmethod
     def make_display_string(row: pd.Series, metric_name: str) -> str:
         """Create a string display for a metric row."""
+        metric_name = metric_name.lower()
+        has_nan_value = pd.isna(row.value)
         has_ci = not pd.isna(row.ci_lower) and not pd.isna(row.ci_upper)
-        if metric_name == "percent_agreement":
-            if has_ci:
+        if "percent" in metric_name:
+            if has_nan_value:
+                return "--"
+            elif has_ci:
                 ci_lower = row.ci_lower * 100
                 ci_upper = row.ci_upper * 100
                 return f"{row.value:.1%} ({ci_lower:.1f}-{ci_upper:.1f}%)"
             else:
                 return f"{row.value:.1%}"
-        elif metric_name == "gwet":
-            if has_ci:
+        else:
+            if has_nan_value:
+                return "--"
+            elif has_ci:
                 ci_lower = row.ci_lower
                 ci_upper = row.ci_upper
                 return f"{row.value:.2f} ({ci_lower:.2f}-{ci_upper:.2f})"
             else:
                 return f"{row.value:.2f}"
-        else:
-            return f"{row.value:.2f}"

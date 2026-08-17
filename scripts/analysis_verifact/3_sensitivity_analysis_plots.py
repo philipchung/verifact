@@ -15,108 +15,57 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 from adjustText import adjust_text
-from irr_metrics import MetricBunch, coerce_categorical_types, coerce_types
-from utils import load_environment, load_pandas
+from irr_metrics import MetricBunch, coerce_categorical_types
+from release_data import load_reference_lengths, load_release_annotations
+from utils import load_environment
 
 load_environment()
+analysis_dir = Path(os.environ["PROJECT_DIR"]) / "scripts" / "analysis_verifact"
+release_dir = Path(os.environ["VERIFACTBHC_DATASET_DIR"])
 pd.set_option("display.max_columns", None)
 pd.set_option("display.max_rows", 60)
 pd.set_option("display.min_rows", 60)
 
-# Load Human Clinician Verdict Labels (One Row Per Proposition)
-human_verdicts = load_pandas(
-    Path(os.environ["VERIFACTBHC_PROPOSITIONS_DIR"]) / "human_verdicts.csv.gz"
-)
-human_verdicts = coerce_types(human_verdicts)
-# Isolate Human Ground Truth Labels
-human_gt = (
-    human_verdicts.assign(rater_name="human_gt")
-    .astype({"rater_name": "string"})
-    .rename(columns={"human_gt": "verdict"})
-    .loc[
-        :,
-        ["proposition_id", "text", "author_type", "proposition_type", "rater_name", "verdict"],
-    ]
-)
-
-# Map of VeriFact Result Directories for Each Model
-model_dir_map = {
-    "Llama-8B": "verifact_llama3_1_8B",
-    "Llama-70B": "verifact_llama3_1_70B",
-    "R1-8B": "verifact_deepseek_r1_distill_llama_8B",
-    "R1-70B": "verifact_deepseek_r1_distill_llama_70B",
-}
-# Enumerate Unique Models
-models = list(model_dir_map.keys())
-# Load VeriFact Labels for Different Models
-model_data_dict: dict[str, pd.DataFrame] = {}
-for model, model_dir in model_dir_map.items():
-    model_data_dict[model] = coerce_types(
-        load_pandas(
-            Path(os.environ["VERIFACT_RESULTS_DIR"])
-            / model_dir
-            / "score_reports"
-            / "verdicts.feather"
-        )
-    )
-
-# Combine all VeriFact Labels into a Single DataFrame
-ai_verdicts = coerce_types(
-    pd.concat(
-        model_data_dict,
-        axis="index",
-        names=("model", "proposition_id"),
-    )
-    .reset_index()
-    .astype({"model": "string"})
-)
-ai_verdicts = ai_verdicts.assign(
-    rater_name=ai_verdicts.apply(lambda row: f"model={row.model},{row.rater_name}", axis="columns")
-)
+models = ["Llama-8B", "Llama-70B", "R1-8B", "R1-70B", "Gemma3-12B", "Gemma3-27B", "Qwen3-32B"]
+ai_verdicts = load_release_annotations(release_dir, models=models)
 
 # Load MetricBunch with computed metrics from save_dir cache
 metric = "percent_agreement"
 name = f"ai_rater_{metric}_ci"
-analysis_save_dir = Path.cwd() / "2_compute_verifact_agreement"
-mb = MetricBunch.load(save_dir=analysis_save_dir, name=name)
+mb_save_dir = analysis_dir / "2_compute_verifact_metrics"
+mb = MetricBunch.load(save_dir=mb_save_dir, name=name)
 
 ## Add Reference Context Lengths to Metric Bunch
-# Compute Mean Reference Context Lengths from Verdict Data's Reference Context
+# Compute Mean Reference Context Lengths without loading reference text
 # for each Metric Bunch evaluation category
-reference_contexts = dict(
-    iter(
-        ai_verdicts.groupby(
-            [
-                "author_type",
-                "proposition_type",
-                "fact_type",
-                "model",
-                "top_n",
-                "retrieval_method",
-                "reference_format",
-                "reference_only_admission",
-            ]
-        )["reference"]
-    )
+reference_lengths = load_reference_lengths(
+    release_dir, reference_ids=ai_verdicts["reference_id"].unique()
 )
-word_lengths = {k: v.apply(lambda x: len(x.split())) for k, v in reference_contexts.items()}
-mean_word_lengths = {k: v.mean() for k, v in word_lengths.items()}
-char_lengths = {k: v.apply(len) for k, v in reference_contexts.items()}
-mean_char_lengths = {k: v.mean() for k, v in char_lengths.items()}
-# Format into DataFrame of Reference Context of Word & Character Lengths
-mean_reference_context_lengths = pd.DataFrame(
-    {"mean_word_length": mean_word_lengths, "mean_char_length": mean_char_lengths}
-).reset_index(
-    names=[
-        "author_type",
-        "proposition_type",
-        "fact_type",
-        "model",
-        "top_n",
-        "retrieval_method",
-        "reference_format",
-        "reference_only_admission",
-    ]
+ai_verdicts = ai_verdicts.merge(
+    reference_lengths,
+    on="reference_id",
+    how="left",
+    validate="many_to_one",
+)
+mean_reference_context_lengths = (
+    ai_verdicts.groupby(
+        [
+            "author_type",
+            "proposition_type",
+            "fact_type",
+            "model",
+            "top_n",
+            "retrieval_method",
+            "reference_format",
+            "reference_only_admission",
+        ],
+        observed=True,
+    )
+    .agg(
+        mean_word_length=("reference_word_count", "mean"),
+        mean_char_length=("reference_char_count", "mean"),
+    )
+    .reset_index()
 )
 # Join Mean Reference Context Lengths with Metric Bunch Data
 mb.metrics = pd.merge(
@@ -240,7 +189,7 @@ legend = fig.legend(
 )
 
 # Save and Display Plot
-save_dir = Path.cwd() / "3_sensitivity_analysis_plots"
+save_dir = analysis_dir / "3_sensitivity_analysis_plots"
 save_dir.mkdir(exist_ok=True)
 fig.savefig(
     save_dir / f"{author_type}-{proposition_type}-{fact_type}_top_n.png",
@@ -331,7 +280,7 @@ ax.set_xlabel("Model")
 ax.set_ylabel("Percent Agreement")
 
 # Save and Display Plot
-save_dir = Path.cwd() / "3_sensitivity_analysis_plots"
+save_dir = analysis_dir / "3_sensitivity_analysis_plots"
 save_dir.mkdir(exist_ok=True)
 fig.savefig(
     save_dir / f"{author_type}-{proposition_type}-{fact_type}_retrieval_method.png",
@@ -422,7 +371,7 @@ ax.set_xlabel("Model")
 ax.set_ylabel("Percent Agreement")
 
 # Save and Display Plot
-save_dir = Path.cwd() / "3_sensitivity_analysis_plots"
+save_dir = analysis_dir / "3_sensitivity_analysis_plots"
 save_dir.mkdir(exist_ok=True)
 fig.savefig(
     save_dir / f"{author_type}-{proposition_type}-{fact_type}_reference_context_format.png",
@@ -514,7 +463,7 @@ ax.set_xlabel("Model")
 ax.set_ylabel("Percent Agreement")
 
 # Save and Display Plot
-save_dir = Path.cwd() / "3_sensitivity_analysis_plots"
+save_dir = analysis_dir / "3_sensitivity_analysis_plots"
 save_dir.mkdir(exist_ok=True)
 fig.savefig(
     save_dir / f"{author_type}-{proposition_type}-{fact_type}_reference_only_admission.png",
@@ -714,7 +663,7 @@ adjust_text(
 )
 
 # Save and Display Plot
-save_dir = Path.cwd() / "3_sensitivity_analysis_plots"
+save_dir = analysis_dir / "3_sensitivity_analysis_plots"
 save_dir.mkdir(exist_ok=True)
 fig.savefig(
     save_dir / f"{author_type}-{proposition_type}_reference_context_length_llama_models.png",

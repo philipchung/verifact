@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import scipy.stats as stats
 from pydantic import BaseModel, ConfigDict, Field
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, matthews_corrcoef
 from tqdm.auto import tqdm
 
 from irr_metrics.interrater import MetricResult
@@ -23,7 +23,7 @@ class ClassificationMetricFunction(Protocol):
 
 
 class ClassificationMetrics(BaseModel):
-    """Compute Sensitivity, Specificity, PPV, NPV, TP, FP, FN, TN, Support for each class
+    """Compute Sensitivity, Specificity, ppv, npv, tp, fp, fn, tn, support for each class
     in a classification task.
     """
 
@@ -33,7 +33,15 @@ class ClassificationMetrics(BaseModel):
     rater_verdicts: list = Field([], description="Labels to compare against ground truth.")
     ground_truth: list = Field([], description="Ground truth labels.")
     verdict_labels: list = Field([], description="List of unique labels for classification task.")
-    metrics: pd.DataFrame | None = Field(
+    metrics: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Dictionary of computed metrics. Each key corresponds to a metric name.",
+    )
+    overall_metrics: pd.DataFrame | None = Field(
+        default=None,
+        description="Dataframe of overall computed metrics.",
+    )
+    label_metrics: pd.DataFrame | None = Field(
         default=None,
         description="Dataframe of computed metrics. Each row corresponds to a metric. "
         "Each column corresponds to a label (verdict category).",
@@ -42,16 +50,16 @@ class ClassificationMetrics(BaseModel):
     @classmethod
     def from_defaults(
         cls,
-        rater_verdicts: Sequence,
-        ground_truth: Sequence,
-        verdict_labels: Sequence,
+        rater_verdicts: list | pd.Series | Sequence,
+        ground_truth: list | pd.Series | Sequence,
+        verdict_labels: list | Sequence,
         bootstrap_iterations: int | None = None,
         workers: int = 1,
         show_progress: bool = True,
     ) -> Self:
         "Compute Classification Metrics from Rater Verdicts and Ground Truth."
         metric_result: dict[str, dict[str, MetricResult]] = (
-            ClassificationMetrics.compute_sens_spec_ppv_npv(
+            ClassificationMetrics.compute_classification_metrics(
                 y_true=ground_truth,
                 y_pred=rater_verdicts,
                 labels=verdict_labels,
@@ -60,25 +68,30 @@ class ClassificationMetrics(BaseModel):
                 show_progress=show_progress,
             )
         )
-        metrics = pd.DataFrame(metric_result)
+        overall_metrics = metric_result["overall"]
+        overall_metrics = pd.Series(overall_metrics).to_frame()
+        label_specific_metrics = {k: v for k, v in metric_result.items() if k != "overall"}
+        label_specific_metrics = pd.DataFrame(label_specific_metrics)
         return cls(
             rater_verdicts=list(rater_verdicts),
             ground_truth=list(ground_truth),
             verdict_labels=list(verdict_labels),
-            metrics=metrics,
+            metrics=metric_result,
+            overall_metrics=overall_metrics,
+            label_metrics=label_specific_metrics,
         )
 
-    def metrics_table(self, fmt: str = "") -> pd.DataFrame:
+    def metrics_table(self, fmt: str = "", condense_label_and_metric: bool = True) -> pd.DataFrame:
         "Return metrics table with columns for each metric and labels as rows."
         # Convert Metrics DataFrame to Long Format
-        metrics_s = self.metrics.stack()
+        metrics_s = self.label_metrics.stack()
         metrics_df = pd.DataFrame(
             metrics_s.apply(lambda x: x.model_dump()).tolist(), index=metrics_s.index
         ).reset_index(names=["metric_name", "verdict_label"])
 
         def make_format_str_for_row(row: pd.Series, fmt: str = fmt) -> str:
             "Create formatted string for display column."
-            if row.metric_name in ["TP", "FP", "FN", "TN", "Support"]:
+            if row.metric_name in ["tp", "fp", "fn", "tn", "support"]:
                 return f"{int(row.value)} ({int(row.ci_lower)}, {int(row.ci_upper)})"
             else:
                 if not fmt or not isinstance(fmt, str):
@@ -118,43 +131,54 @@ class ClassificationMetrics(BaseModel):
                 "display_str": "string",
             }
         ).sort_values(by=["verdict_label", "metric_name"])
+        # Optionally Condense Label and Metric into Single Column
+        if condense_label_and_metric:
+            metrics_df = metrics_df.assign(
+                metric_name=metrics_df.apply(
+                    lambda row: f"{row.verdict_label}-{row.metric_name}", axis="columns"
+                )
+            ).drop(columns=["verdict_label"])
         return metrics_df
 
     @staticmethod
-    def _compute_sens_spec_ppv_npv(
-        y_true: Sequence,
-        y_pred: Sequence,
-        labels: Sequence,
+    def _compute_classification_metrics(
+        y_true: list | pd.Series | Sequence,
+        y_pred: list | pd.Series | Sequence,
+        labels: list | Sequence,
     ) -> dict[str, dict[str, float | int]]:
-        "Compute Sensitivity, Specificity, PPV, NPV, TP, FP, FN, TN, Support for each class."
+        "Compute Sensitivity, Specificity, ppv, npv, tp, fp, fn, tn, support for each class."
         output: dict[str, dict[str, float | int]] = {}
+        # Matthew's Correlation Coefficient
+        mcc = matthews_corrcoef(y_true=y_true, y_pred=y_pred, sample_weight=None)
+        output["overall"] = {"mcc": mcc}
+
         # Confusion matrix whose i-th row and j-th column entry indicates the number of samples
         # with true label being i-th class and predicted label being j-th class.
         cm = confusion_matrix(y_true=y_true, y_pred=y_pred, labels=labels)
-        # Sens/Spec/PPV/NPV for each class
+        # Sens/Spec/ppv/npv for each class
         for i, label in enumerate(labels):
-            # Extract TP, FP, FN, TN from Confusion Matrix
+            # Extract tp, fp, fn, tn from Confusion Matrix
             tp = cm[i, i]
             fp = cm[:, i].sum() - tp
             fn = cm[i, :].sum() - tp
             tn = cm.sum() - tp - fp - fn
-            # Support
+            # support
             support = tp + fn
-            # Compute Sensitivity (TPR, Recall), Specificity (TNR), PPV (Precision), NPV
-            tpr = tp / (tp + fn)
-            tnr = tn / (tn + fp)
-            ppv = tp / (tp + fp)
-            npv = tn / (tn + fn)
+            # Compute Sensitivity (tpr, Recall), Specificity (tnr), ppv (Precision), npv
+            tpr = tp / (tp + fn) if (tp + fn) > 0 else float("nan")
+            tnr = tn / (tn + fp) if (tn + fp) > 0 else float("nan")
+            ppv = tp / (tp + fp) if (tp + fp) > 0 else float("nan")
+            npv = tn / (tn + fn) if (tn + fn) > 0 else float("nan")
             output[label] = {
-                "TPR": tpr,
-                "TNR": tnr,
-                "PPV": ppv,
-                "NPV": npv,
-                "TP": int(tp),
-                "FP": int(fp),
-                "FN": int(fn),
-                "TN": int(tn),
-                "Support": int(support),
+                "tpr": tpr,
+                "tnr": tnr,
+                "ppv": ppv,
+                "npv": npv,
+                "tp": int(tp),
+                "fp": int(fp),
+                "fn": int(fn),
+                "tn": int(tn),
+                "support": int(support),
             }
         return output
 
@@ -178,18 +202,18 @@ class ClassificationMetrics(BaseModel):
         return metric_fn(y_true=boot_y_true, y_pred=boot_y_pred, **kwargs)
 
     @staticmethod
-    def compute_sens_spec_ppv_npv(
-        y_true: list | pd.Series,
-        y_pred: list | pd.Series,
-        labels: list,
+    def compute_classification_metrics(
+        y_true: list | pd.Series | Sequence,
+        y_pred: list | pd.Series | Sequence,
+        labels: list | Sequence,
         bootstrap_iterations: int = 1000,
         bootstrap_fraction: float = 1.0,
         confidence_level: float = 0.95,
         workers: int = 1,
         show_progress: bool = True,
         **kwargs,
-    ) -> pd.DataFrame:
-        "Bootstrap sample original data and compute Sens/Spec/PPV/NPV for each class."
+    ) -> dict[str, dict[str, MetricResult]]:
+        "Bootstrap sample original data and compute Classification Metrics for each class."
         # Convert y_true and y_pred to Series if not already
         if not isinstance(y_true, pd.Series):
             y_true = pd.Series(y_true, name="y_true")
@@ -198,7 +222,7 @@ class ClassificationMetrics(BaseModel):
 
         # Compute Metrics on All Data
         observed_result: dict[str, dict[str, float | int]] = (
-            ClassificationMetrics._compute_sens_spec_ppv_npv(
+            ClassificationMetrics._compute_classification_metrics(
                 y_true=y_true, y_pred=y_pred, labels=labels
             )
         )
@@ -208,7 +232,7 @@ class ClassificationMetrics(BaseModel):
             boot_metric_results: list[dict[str, dict[str, float | int]]] = []
             for i in tqdm(
                 range(bootstrap_iterations),
-                desc="Bootstrap Sens/Spec/PPV/NPV",
+                desc="Bootstrap Classification Metrics",
                 disable=not show_progress,
             ):
                 boot_metric_result: dict[str, dict[str, float | int]] = (
@@ -216,7 +240,7 @@ class ClassificationMetrics(BaseModel):
                         y_true=y_true,
                         y_pred=y_pred,
                         labels=labels,
-                        metric_fn=ClassificationMetrics._compute_sens_spec_ppv_npv,
+                        metric_fn=ClassificationMetrics._compute_classification_metrics,
                         bootstrap_fraction=bootstrap_fraction,
                         random_state=i,
                         **kwargs,
@@ -233,7 +257,7 @@ class ClassificationMetrics(BaseModel):
                         y_true=y_true,
                         y_pred=y_pred,
                         labels=labels,
-                        metric_fn=ClassificationMetrics._compute_sens_spec_ppv_npv,
+                        metric_fn=ClassificationMetrics._compute_classification_metrics,
                         bootstrap_fraction=bootstrap_fraction,
                         random_state=i,
                         **kwargs,
@@ -242,7 +266,7 @@ class ClassificationMetrics(BaseModel):
                 # Wait for all to complete
                 for _ in tqdm(
                     as_completed(futures),
-                    desc="Bootstrap Sens/Spec/PPV/NPV",
+                    desc="Bootstrap Classification Metrics",
                     total=bootstrap_iterations,
                     disable=not show_progress,
                 ):
@@ -253,6 +277,7 @@ class ClassificationMetrics(BaseModel):
                 ]
 
         # Unpack Each of the Metrics for each Label
+        boot_overall = defaultdict(list)
         boot_tpr = defaultdict(list)
         boot_tnr = defaultdict(list)
         boot_ppv = defaultdict(list)
@@ -263,25 +288,39 @@ class ClassificationMetrics(BaseModel):
         boot_tn = defaultdict(list)
         boot_support = defaultdict(list)
         for boot_metric_result in boot_metric_results:
+            boot_overall["mcc"] += [boot_metric_result["overall"]["mcc"]]
             for label in labels:
-                boot_tpr[label] += [boot_metric_result[label]["TPR"]]
-                boot_tnr[label] += [boot_metric_result[label]["TNR"]]
-                boot_ppv[label] += [boot_metric_result[label]["PPV"]]
-                boot_npv[label] += [boot_metric_result[label]["NPV"]]
-                boot_tp[label] += [boot_metric_result[label]["TP"]]
-                boot_fp[label] += [boot_metric_result[label]["FP"]]
-                boot_fn[label] += [boot_metric_result[label]["FN"]]
-                boot_tn[label] += [boot_metric_result[label]["TN"]]
-                boot_support[label] += [boot_metric_result[label]["Support"]]
+                boot_tpr[label] += [boot_metric_result[label]["tpr"]]
+                boot_tnr[label] += [boot_metric_result[label]["tnr"]]
+                boot_ppv[label] += [boot_metric_result[label]["ppv"]]
+                boot_npv[label] += [boot_metric_result[label]["npv"]]
+                boot_tp[label] += [boot_metric_result[label]["tp"]]
+                boot_fp[label] += [boot_metric_result[label]["fp"]]
+                boot_fn[label] += [boot_metric_result[label]["fn"]]
+                boot_tn[label] += [boot_metric_result[label]["tn"]]
+                boot_support[label] += [boot_metric_result[label]["support"]]
 
         def compute_ci(values: list[float], confidence_level: float) -> tuple[float, float]:
             """Estimate Confidence Interval"""
+            # Drop NaN Values
+            values = [v for v in values if not np.isnan(v)]
+            # If No Values, Return NaN
+            if len(values) == 0:
+                return float("nan"), float("nan")
+            # Compute Percentile-based Confidence Intervals
+            values = np.array(values)
             ci_lower = float(np.percentile(values, (1 - confidence_level) / 2 * 100))
             ci_upper = float(np.percentile(values, (1 + confidence_level) / 2 * 100))
             return ci_lower, ci_upper
 
         def compute_p_value(values: list[float], observed_value: float) -> float:
             """Compute p-value using standard error and observed metric"""
+            # Drop NaN Values
+            values = [v for v in values if not np.isnan(v)]
+            # If No Values, Return NaN
+            if len(values) == 0:
+                return float("nan")
+            values = np.array(values)
             # Compute Standard Error
             standard_error = float(np.std(values, ddof=1))
             # If standard error is too small to represent, set to a small value
@@ -293,14 +332,33 @@ class ClassificationMetrics(BaseModel):
             p_value = 2 * (1 - stats.norm.cdf(abs(z_score)))  # Two-tailed test
             return p_value
 
-        # Create MetricResults for each Metric & Label
+        ## Create MetricResults for each Metric & Label
         metric_results: dict[str, dict[str, MetricResult]] = {}
+        # Overall Metrics (computed across labels)
+        observed_mcc = observed_result["overall"]["mcc"]
+        boot_mcc = boot_overall["mcc"]
+        ci_lower, ci_upper = compute_ci(boot_mcc, confidence_level)
+        p_value = compute_p_value(boot_mcc, observed_mcc)
+        metric_results["overall"] = {
+            "mcc": MetricResult(
+                name="mcc",
+                value=observed_mcc,
+                ci_lower=ci_lower,
+                ci_upper=ci_upper,
+                confidence_level=confidence_level,
+                p_value=p_value,
+                bootstrap_iterations=bootstrap_iterations,
+                bootstrap_values=boot_mcc,
+            )
+        }
+
+        # Label-specific metrics (computed per label)
         for label in labels:
             if label not in metric_results:
                 metric_results[label] = {}
 
             for metric_name, boot_metric_values in zip(
-                ["TPR", "TNR", "PPV", "NPV", "TP", "FP", "FN", "TN", "Support"],
+                ["tpr", "tnr", "ppv", "npv", "tp", "fp", "fn", "tn", "support"],
                 [
                     boot_tpr,
                     boot_tnr,

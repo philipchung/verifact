@@ -14,6 +14,7 @@ mimic3_dir = Path(os.environ["MIMIC3_DIR"])
 verifact_bhc_dir = Path(os.environ["VERIFACTBHC_DATASET_DIR"])
 patients_df = load_pandas(mimic3_dir / "PATIENTS.csv.gz")
 propositions_df = load_pandas(verifact_bhc_dir / "propositions" / "propositions.csv.gz")
+human_verdicts_df = load_pandas(verifact_bhc_dir / "propositions" / "human_verdicts.csv.gz")
 admissions_df = load_pandas(verifact_bhc_dir / "reference_ehr" / "admissions.csv.gz")
 ehr_noteevents_df = load_pandas(verifact_bhc_dir / "reference_ehr" / "ehr_noteevents.csv.gz")
 
@@ -151,7 +152,6 @@ print(
     f"Number of Words in Brief Hospital Course, Mean (Std): "
     f"{llm_bhc_word_mean:.2f} ({llm_bhc_word_std:.2f})"
 )
-# %%
 
 print("= Atomic Claims =")
 llm_claim = llm_author_propositions.query("proposition_type == 'claim'")
@@ -170,8 +170,7 @@ print(
 llm_claim_stats = llm_claim["num_words"].describe()
 llm_claim_mean = llm_claim_stats["mean"]
 llm_claim_std = llm_claim_stats["std"]
-print(f"Number of Words in Atomic Claims, Mean (Std): "
-      f"{llm_claim_mean:.2f} ({llm_claim_std:.2f})")
+print(f"Number of Words in Atomic Claims, Mean (Std): {llm_claim_mean:.2f} ({llm_claim_std:.2f})")
 
 print("= Sentences =")
 llm_sentence = llm_author_propositions.query("proposition_type == 'sentence'")
@@ -190,8 +189,7 @@ print(
 llm_sentence_stats = llm_sentence["num_words"].describe()
 llm_sentence_mean = llm_sentence_stats["mean"]
 llm_sentence_std = llm_sentence_stats["std"]
-print(f"Number of Words in Sentences, Mean (Std): "
-      f"{llm_sentence_mean:.2f} ({llm_sentence_std:.2f})")
+print(f"Number of Words in Sentences, Mean (Std): {llm_sentence_mean:.2f} ({llm_sentence_std:.2f})")
 
 # %%
 # Human-Written Brief Hospital Course
@@ -229,8 +227,7 @@ human_claim_stats = human_claim["num_words"].describe()
 human_claim_mean = human_claim_stats["mean"]
 human_claim_std = human_claim_stats["std"]
 print(
-    f"Number of Words in Atomic Claims, Mean (Std): "
-    f"{human_claim_mean:.2f} ({human_claim_std:.2f})"
+    f"Number of Words in Atomic Claims, Mean (Std): {human_claim_mean:.2f} ({human_claim_std:.2f})"
 )
 
 print("= Sentences =")
@@ -254,6 +251,42 @@ print(
     f"Number of Words in Sentences, Mean (Std): "
     f"{human_sentence_mean:.2f} ({human_sentence_std:.2f})"
 )
+
+# %%
+# Clinician Verdict Labels
+# - Number of Supported, Not Supported, Not Addressed Labels
+print("=== Clinician Verdict Labels: LLM-written BHC Decomposed to Claims ===")
+llm_claim = human_verdicts_df.query("author_type == 'llm' and proposition_type == 'claim'")
+llm_claim_verdict_ct = llm_claim.human_gt.value_counts()
+print("Human Ground Truth Verdict Label Distribution: ")
+print(llm_claim_verdict_ct.to_string(header=False))
+print("")
+
+print("=== Clinician Verdict Labels: LLM-written BHC Decomposed to Sentences ===")
+llm_sentence = human_verdicts_df.query("author_type == 'llm' and proposition_type == 'sentence'")
+llm_sentence_verdict_ct = llm_sentence.human_gt.value_counts()
+print("Human Ground Truth Verdict Label Distribution: ")
+print(llm_sentence_verdict_ct.to_string(header=False))
+print("")
+
+print("=== Clinician Verdict Labels: Human-written BHC Decomposed to Claims ===")
+human_claim = human_verdicts_df.query("author_type == 'human' and proposition_type == 'claim'")
+human_claim_verdict_ct = human_claim.human_gt.value_counts()
+print("Human Ground Truth Verdict Label Distribution: ")
+print(human_claim_verdict_ct.to_string(header=False))
+print("")
+
+print("=== Clinician Verdict Labels: Human-written BHC Decomposed to Sentences ===")
+human_sentence = human_verdicts_df.query(
+    "author_type == 'human' and proposition_type == 'sentence'"
+)
+human_sentence_verdict_ct = human_sentence.human_gt.value_counts()
+print("Human Ground Truth Verdict Label Distribution: ")
+print(human_sentence_verdict_ct.to_string(header=False))
+print("")
+
+# %%
+
 
 # %%
 # EHR Notes
@@ -421,7 +454,7 @@ claims_num_words_mean = claims_num_words_stats["mean"]
 claims_num_words_std = claims_num_words_stats["std"]
 print(
     f"Number of Words in EHR Claims, Mean (Std): "
-    f"{claims_num_words_mean:.2f} "({claims_num_words_std:.2f})"
+    f"{claims_num_words_mean:.2f} ({claims_num_words_std:.2f})"
 )
 
 # %%
